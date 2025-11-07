@@ -1,0 +1,3 @@
+Overall Test Accuracy: 66.21%
+Number of classes: 11
+Number of test samples: 2113

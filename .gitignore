@@ -22,7 +22,7 @@ build/
 
 # Data (DON'T COMMIT LARGE FILES!)
 data/raw/
-data/processed/
+#data/processed/
 *.h5
 *.pkl
 
@@ -30,8 +30,7 @@ data/processed/
 models/*.h5
 models/*.tflite
 
-# Results
-results/
+
 
 # OS
 .DS_Store
