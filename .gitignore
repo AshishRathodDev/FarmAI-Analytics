@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Data (DON'T COMMIT LARGE FILES!)
+data/raw/
+data/processed/
+*.h5
+*.pkl
+
+# Models (except small ones)
+models/*.h5
+models/*.tflite
+
+# Results
+results/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Keep empty folders
+!.gitkeep
