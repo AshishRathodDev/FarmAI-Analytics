@@ -58,14 +58,16 @@ This project implements an **end-to-end machine learning solution** for classify
 
 ##  Demo Screenshots
 
+
+
 ### Gradio Web Application Interface
 
 | Prediction Example | Details |
 |-------------------|---------|
-| ![Potato Early Blight](/Users/ashishrathore/syngenta_crop_disease/results/image/Screenshot 2025-11-07 at 9.15.16 AM.jpg) | **Potato Early Blight**: Detected with 48% confidence. Treatment recommendation: Apply fungicide (Chlorothalonil or Mancozeb). Prevention: Crop rotation, remove infected leaves. |
-| ![Pepper Healthy](/Users/ashishrathore/syngenta_crop_disease/results/image/Screenshot 2025-11-07 at 9.14.19 AM.jpg) | **Pepper Healthy**: Detected with 81% confidence. No treatment needed. Continue regular monitoring and maintain current practices. |
-| ![Tomato Septoria](/Users/ashishrathore/syngenta_crop_disease/results/image/Screenshot 2025-11-07 at 9.13.27 AM.jpg) | **Low Confidence Detection**: Tomato Septoria at 35% confidence. Recommendation: Retake photo with better lighting and full leaf view, or consult with agricultural expert. |
-| ![Tomato Late Blight](/Users/ashishrathore/syngenta_crop_disease/results/image/Screenshot 2025-11-07 at 9.12.59 AM.jpg) | **Tomato Late Blight**: Detected with 36% confidence. Requires expert review due to low confidence score. |
+| ![Potato Early Blight](results/figures/demo_potato_early_blight.jpg) | **Potato Early Blight**: Detected with 48% confidence. Treatment recommendation: Apply fungicide (Chlorothalonil or Mancozeb). Prevention: Crop rotation, remove infected leaves. |
+| ![Pepper Healthy](results/figures/demo_pepper_healthy.jpg) | **Pepper Healthy**: Detected with 81% confidence. No treatment needed. Continue regular monitoring and maintain current practices. |
+| ![Tomato Septoria](results/figures/demo_tomato_septoria.jpg) | **Low Confidence Detection**: Tomato Septoria at 35% confidence. Recommendation: Retake photo with better lighting and full leaf view, or consult with agricultural expert. |
+| ![Tomato Late Blight](results/figures/demo_tomato_late_blight.jpg) | **Tomato Late Blight**: Detected with 36% confidence. Requires expert review due to low confidence score. |
 
 **Key Features Shown:**
 -  Real-time disease classification
