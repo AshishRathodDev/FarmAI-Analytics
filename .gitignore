@@ -1,39 +1,55 @@
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv/
+
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-env/
-venv/
-ENV/
 *.egg-info/
 dist/
 build/
 
-# Jupyter Notebook
-.ipynb_checkpoints
+# Environment variables
+.env
+.env.local
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# Data (DON'T COMMIT LARGE FILES!)
-data/raw/
-data/processed/
-*.h5
-*.pkl
-
-# Models (except small ones)
-models/*.h5
-models/*.tflite
-
+*~
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Keep empty folders
-!.gitkeep
+# Streamlit
+.streamlit/secrets.toml
+
+# Models (if large)
+models/*.h5
+models/*.pkl
+
+# Data files
+data/raw/*
+data/processed/*
+!data/.gitkeep
+
+# Temporary files
+*.tmp
+*.bak

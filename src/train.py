@@ -173,7 +173,7 @@ def train_model_pipeline(train_generator, val_generator, num_classes):
             validation_data=val_generator,
             epochs=config.PHASE2_EPOCHS,
             callbacks=callbacks,
-            verbose=config.VERBOSE
+            verbose=config.VERBOSE 
         )
         
         # Combine histories
