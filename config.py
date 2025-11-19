@@ -3,31 +3,29 @@ FarmAI Analytics Platform - Configuration Module
 Complete configuration management for production deployment
 """
 
-import os
 from pathlib import Path
+import os
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
 
 # ==================== API CONFIGURATION ====================
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 
-# Validate API key on import
-if not GOOGLE_API_KEY:
-    print("⚠️  WARNING: GOOGLE_API_KEY not found in environment")
-    print("   Set it in .env file or Streamlit secrets")
+# ==================== PATHS & DIRECTORIES ====================
+MODELS_DIR = BASE_DIR / "models"
+LOGS_DIR = BASE_DIR / "logs"
+DATA_DIR = BASE_DIR / "data"
 
-# ==================== DATABASE CONFIGURATION ====================
-DATABASE_PATH = 'farmer_analytics.db'
-DATABASE_BACKUP_PATH = 'farmer_analytics_backup.db'
+# ensure directories exist early
+for p in (MODELS_DIR, LOGS_DIR, DATA_DIR, DATA_DIR / "raw", DATA_DIR / "processed"):
+    p.mkdir(parents=True, exist_ok=True)
 
-# ==================== MODEL CONFIGURATION ====================
-MODEL_PATH = 'models/crop_disease_classifier_final.h5'
-MODEL_METADATA_PATH = 'models/model_metadata.json'
-CLASS_INDICES_PATH = 'models/class_indices.json'
-
-# Model parameters
+DATABASE_PATH = BASE_DIR / 'farmer_analytics.db'
+MODEL_PATH = MODELS_DIR / 'crop_disease_classifier_final.h5'
+MODEL_METADATA_PATH = MODELS_DIR / 'model_metadata.json'
+CLASS_INDICES_PATH = MODELS_DIR / 'class_indices.json'
 IMAGE_SIZE = (224, 224)
 CONFIDENCE_THRESHOLD = 0.65
 BATCH_SIZE = 32
@@ -113,6 +111,9 @@ CROP_DISEASES = {
 }
 
 # ==================== STREAMLIT CONFIGURATION ====================
+# NOTE: These are Streamlit specific. As you are using React,
+# these might not be directly used by your Flask backend,
+# but can remain for project context if you desire.
 PAGE_ICON = "🌾"
 PAGE_TITLE = "FarmAI Analytics Platform"
 PAGE_LAYOUT = "wide"
@@ -154,68 +155,68 @@ LANGUAGE_CODES = {
 # ==================== TREATMENT TEMPLATES ====================
 TREATMENT_TEMPLATES = {
     'fungal': """
-    🔬 Fungal Disease Treatment Plan:
+    Fungal Disease Treatment Plan:
     
     Immediate Actions (Day 1-3):
-    • Remove and destroy infected plant parts
-    • Improve air circulation around plants
-    • Avoid overhead watering
+    - Remove and destroy infected plant parts
+    - Improve air circulation around plants
+    - Avoid overhead watering
     
     Treatment (Week 1-2):
-    • Apply fungicide: {fungicide_name}
-    • Spray every 7-10 days
-    • Ensure complete leaf coverage
+    - Apply fungicide: {fungicide_name}
+    - Spray every 7-10 days
+    - Ensure complete leaf coverage
     
     Prevention:
-    • Use disease-resistant varieties
-    • Practice crop rotation
-    • Maintain proper plant spacing
+    - Use disease-resistant varieties
+    - Practice crop rotation
+    - Maintain proper plant spacing
     
-    Cost: ₹{cost} per acre
+    Cost: {cost} per acre
     Recovery Time: {recovery_days} days
     """,
     
     'bacterial': """
-    🦠 Bacterial Disease Treatment Plan:
+     Bacterial Disease Treatment Plan:
     
     Immediate Actions (Day 1-3):
-    • Remove infected plants completely
-    • Disinfect tools with 70% alcohol
-    • Avoid working with wet plants
+    - Remove infected plants completely
+    - Disinfect tools with 70% alcohol
+    - Avoid working with wet plants
     
     Treatment (Week 1-3):
-    • Apply copper-based bactericide
-    • Spray every 5-7 days
-    • Use antibiotic if severe
+    - Apply copper-based bactericide
+    - Spray every 5-7 days
+    - Use antibiotic if severe
     
     Prevention:
-    • Use certified disease-free seeds
-    • Practice strict sanitation
-    • Avoid overhead irrigation
+    - Use certified disease-free seeds
+    - Practice strict sanitation
+    - Avoid overhead irrigation
     
-    Cost: ₹{cost} per acre
+    Cost: {cost} per acre
     Recovery Time: {recovery_days} days
     """,
     
     'viral': """
-    🧬 Viral Disease Management Plan:
+     Viral Disease Management Plan:
     
     Immediate Actions (Day 1):
-    • Remove infected plants immediately
-    • Control insect vectors (aphids, whiteflies)
-    • Isolate healthy plants
+    - Remove infected plants immediately
+    - Control insect vectors (aphids, whiteflies)
+    - Isolate healthy plants
     
     Management (Ongoing):
-    • No cure available - focus on prevention
-    • Apply insecticides to control vectors
-    • Use reflective mulches
+    - No cure available - focus on prevention
+    - Apply insecticides to control vectors
+    - Use reflective mulches
     
     Prevention:
-    • Plant resistant varieties
-    • Use virus-free seeds
-    • Control weed hosts
+    - Plant resistant varieties
+    - Use virus-free seeds
+    - Control weed hosts
     
-    Cost: ₹{cost} per acre
+    Cost: {cost} per acre
     Note: Prevention is key - no cure exists
     """
 }
@@ -245,25 +246,26 @@ def validate_config():
 is_valid, errors, warnings = validate_config()
 
 if not is_valid:
-    print("\n⚠️  CONFIGURATION ERRORS:")
+    print("\n  CONFIGURATION ERRORS:")
     for error in errors:
-        print(f"   ❌ {error}")
+        print(f"    {error}")
 
 if warnings:
-    print("\n⚡ CONFIGURATION WARNINGS:")
+    print("\nWARNINGS:")
     for warning in warnings:
-        print(f"   ⚠️  {warning}")
+        print(f"     {warning}")
 
 # ==================== EXPORT ALL ====================
 __all__ = [
     'GOOGLE_API_KEY',
     'DATABASE_PATH',
     'MODEL_PATH',
+    'CLASS_INDICES_PATH', # <-- ADDED THIS LINE
     'IMAGE_SIZE',
     'SUPPORTED_CROPS',
     'DISEASE_CLASSES',
-    'PAGE_ICON',
-    'PAGE_TITLE',
+    'PAGE_ICON', # Streamlit specific, but can remain if you want
+    'PAGE_TITLE', # Streamlit specific
     'LOG_FILE',
     'CONFIDENCE_THRESHOLD',
     'CHATBOT_MODEL',
@@ -271,5 +273,3 @@ __all__ = [
     'SUPPORTED_LANGUAGES',
     'TREATMENT_TEMPLATES'
 ]
-
-
