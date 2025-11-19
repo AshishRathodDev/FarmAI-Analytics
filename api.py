@@ -1,310 +1,338 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-from PIL import Image
+"""
+FarmAI Backend API (Flask) - Stable production/dev-ready version
+
+Notes:
+- Uses Path objects from config where possible.
+- Safe initialization if model/chatbot or DB modules are missing.
+- Improved logging to a single log file (configured in config.py).
+"""
+
 import io
-import os
 import json
 import logging
-from pathlib import Path
 import random
 import time
+from pathlib import Path
+from typing import Optional
 
-# --- Configuration (from config.py) ---
+from flask import Flask, jsonify, request
+from flask_cors import CORS
+from PIL import Image
+
+# ----- Config import (use fallback defaults if config missing) -----
 try:
     from config import (
         MODEL_PATH,
         DATABASE_PATH,
         IMAGE_SIZE,
-        GOOGLE_API_KEY
+        GOOGLE_API_KEY,
+        CLASS_INDICES_PATH,
+        LOG_FILE,
     )
-    # Handle CLASS_INDICES_PATH
-    CLASS_INDICES_PATH = Path('models/class_indices.json')
-except ImportError as e:
-    print(f"⚠️  Config import error: {e}")
-    # Fallback defaults
-    MODEL_PATH = 'models/crop_disease_classifier_final.h5'
-    DATABASE_PATH = 'farmer_analytics.db'
+    # Ensure Path types
+    MODEL_PATH = Path(MODEL_PATH)
+    DATABASE_PATH = Path(DATABASE_PATH)
+    CLASS_INDICES_PATH = Path(CLASS_INDICES_PATH)
+    LOG_FILE = Path(LOG_FILE)
+except Exception as e:
+    # If config import fails, use conservative defaults
+    print("Config import failed:", e)
+    MODEL_PATH = Path("models/crop_disease_classifier_final.h5")
+    DATABASE_PATH = Path("farmer_analytics.db")
     IMAGE_SIZE = (224, 224)
-    GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
-    CLASS_INDICES_PATH = Path('models/class_indices.json')
+    GOOGLE_API_KEY = None
+    CLASS_INDICES_PATH = Path("models/class_indices.json")
+    LOG_FILE = Path("logs/app.log")
 
-# --- Your Project Imports (from src/ folder) ---
+# ----- Project module imports (safe) -----
 try:
     from src.database_manager import FarmAIDatabaseManager
+except Exception as e:
+    FarmAIDatabaseManager = None
+    print("Warning: database_manager import failed:", e)
+
+try:
     from src.crop_classifier import CropDiseaseClassifier
+except Exception as e:
+    CropDiseaseClassifier = None
+    print("Warning: crop_classifier import failed:", e)
+
+try:
     from src.chatbot_agent import FarmAIChatbot
+except Exception as e:
+    FarmAIChatbot = None
+    print("Warning: chatbot_agent import failed:", e)
+
+try:
     from src.analytics_engine import AnalyticsEngine
-except ImportError as e:
-    print(f"⚠️  Module import error: {e}")
-    print("Make sure all src/ modules exist")
+except Exception as e:
+    AnalyticsEngine = None
+    print("Warning: analytics_engine import failed:", e)
 
-# Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# ----- Logging setup -----
+LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+logging.basicConfig(
+    filename=str(LOG_FILE),
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+)
+logger = logging.getLogger("farmai.api")
 
+# ----- Flask app -----
 app = Flask(__name__)
-CORS(app)  # Enable CORS for React frontend
+CORS(app)
 
-# --- Global Objects ---
-db_manager = None
-classifier = None
-chatbot = None
-analytics_engine = None
+# ----- Global singletons -----
+db_manager: Optional[object] = None
+classifier: Optional[object] = None
+chatbot: Optional[object] = None
+analytics_engine: Optional[object] = None
 CLASS_NAMES = None
 
+
 def load_global_resources():
-    """Loads database, model, and chatbot objects globally."""
+    """Initialize and load DB, classifier, chatbot and analytics engine."""
     global db_manager, classifier, chatbot, analytics_engine, CLASS_NAMES
 
-    logger.info("🚀 Loading global resources for FarmAI backend...")
+    logger.info("Loading global resources...")
 
-    # Initialize Database Manager
-    try:
-        if db_manager is None:
-            db_manager = FarmAIDatabaseManager(DATABASE_PATH)
-            logger.info(f"✅ Database Manager initialized using {DATABASE_PATH}")
-    except Exception as e:
-        logger.error(f"❌ Database initialization failed: {e}")
+    # Database Manager
+    if db_manager is None and FarmAIDatabaseManager is not None:
+        try:
+            db_manager = FarmAIDatabaseManager(str(DATABASE_PATH))
+            logger.info("Database manager initialized.")
+        except Exception as e:
+            logger.exception("Database initialization failed: %s", e)
+            db_manager = None
 
-    # Load Class Names
-    try:
-        if CLASS_NAMES is None:
-            if CLASS_INDICES_PATH.exists():
-                with open(CLASS_INDICES_PATH, 'r') as f:
-                    class_indices = json.load(f)
-                    # Reverse the dict to get class names by index
-                    CLASS_NAMES = {int(idx): name for name, idx in class_indices.items()}
-                logger.info(f"✅ Loaded {len(CLASS_NAMES)} class names from {CLASS_INDICES_PATH}")
+    # Class indices / class names
+        try:
+            if CLASS_NAMES is None:
+                CLASS_INDICES_PATH = Path(CLASS_INDICES_PATH)  # ensure Path
+                if CLASS_INDICES_PATH.exists():
+                    with open(CLASS_INDICES_PATH, "r") as f:
+                        class_indices = json.load(f)
+                        # Normalize mapping: allow either {"0": "name",...} or {"name": 0, ...}
+                        if all(str(k).isdigit() for k in class_indices.keys()):
+                            CLASS_NAMES = {int(k): v for k, v in class_indices.items()}
+                        else:
+                        # reverse mapping assumed: name -> index
+                            CLASS_NAMES = {int(v): k for k, v in class_indices.items()}
+                    logger.info("✅ Loaded class indices (%d classes) from %s", len(CLASS_NAMES), CLASS_INDICES_PATH)
+                else:
+                    logger.warning("⚠️ Class indices file not found: %s", CLASS_INDICES_PATH)
+                    CLASS_NAMES = {}
+        except Exception:
+            logger.exception("❌ Failed to load class indices, continuing with fallback.")
+            CLASS_NAMES = {}
+    
+    # Classifier
+
+    # --- Classifier init (robust) ---
+    if classifier is None and 'CropDiseaseClassifier' in globals():
+        try:
+            model_path_str = str(MODEL_PATH) if isinstance(MODEL_PATH, (Path,)) else MODEL_PATH
+            logger.info("Attempting to load classifier from: %s", model_path_str)
+
+            classifier = CropDiseaseClassifier(model_path_str)
+
+            # Try to get model info if available
+            if classifier and getattr(classifier, "model", None):
+                info = {}
+                try:
+                    info = classifier.get_model_info() if hasattr(classifier, "get_model_info") else {}
+                except Exception:
+                    logger.exception("Could not call get_model_info() on classifier")
+                logger.info("Classifier loaded successfully. model info: %s", info)
             else:
-                logger.warning(f"⚠️  Class indices file not found at {CLASS_INDICES_PATH}")
-                # Fallback class names
-                CLASS_NAMES = {
-                    0: 'Apple___Apple_scab',
-                    1: 'Apple___Black_rot',
-                    2: 'Apple___Cedar_apple_rust',
-                    3: 'Apple___healthy',
-                    10: 'Potato___Early_blight',
-                    11: 'Potato___Late_blight',
-                    12: 'Potato___healthy',
-                    13: 'Tomato___Bacterial_spot',
-                    14: 'Tomato___Early_blight',
-                    15: 'Tomato___Late_blight',
-                    16: 'Tomato___Leaf_Mold',
-                    17: 'Tomato___Septoria_leaf_spot',
-                    18: 'Tomato___healthy'
-                }
-    except Exception as e:
-        logger.error(f"❌ Class names loading failed: {e}")
-        CLASS_NAMES = {i: f"Disease_Class_{i}" for i in range(38)}
+                logger.warning("Classifier initialized but model is NOT loaded (DEMO mode).")
+                logger.warning("Checked model path: %s", model_path_str)
 
-    # Initialize Crop Classifier
-    try:
-        if classifier is None:
-            classifier = CropDiseaseClassifier(MODEL_PATH)
-            logger.info(f"✅ Crop Disease Classifier initialized using {MODEL_PATH}")
-            if not classifier.model:
-                logger.warning("⚠️  Classifier model not loaded. Predictions will run in DEMO mode.")
-    except Exception as e:
-        logger.error(f"❌ Classifier initialization failed: {e}")
-
-    # Initialize Chatbot
-    try:
-        if chatbot is None:
+        except Exception as exc:
+            logger.exception("Failed to initialize classifier: %s", exc)
+            classifier = None
+    
+    
+    # Chatbot
+    if chatbot is None and FarmAIChatbot is not None:
+        try:
             if GOOGLE_API_KEY:
                 chatbot = FarmAIChatbot(GOOGLE_API_KEY)
-                logger.info("✅ Chatbot initialized with Google Gemini")
+                logger.info("Chatbot initialized.")
             else:
-                logger.warning("⚠️  GOOGLE_API_KEY not found. Chatbot will be limited.")
-    except Exception as e:
-        logger.error(f"❌ Chatbot initialization failed: {e}")
+                logger.warning("GOOGLE_API_KEY not set; chatbot will be unavailable.")
+                chatbot = None
+        except Exception:
+            logger.exception("Failed to initialize chatbot.")
+            chatbot = None
 
-    # Initialize Analytics Engine
-    try:
-        if analytics_engine is None and db_manager:
+    # Analytics Engine
+    if analytics_engine is None and AnalyticsEngine is not None and db_manager is not None:
+        try:
             analytics_engine = AnalyticsEngine(db_manager)
-            logger.info("✅ Analytics Engine initialized")
-    except Exception as e:
-        logger.error(f"❌ Analytics initialization failed: {e}")
+            logger.info("Analytics engine initialized.")
+        except Exception:
+            logger.exception("Failed to initialize analytics engine.")
+            analytics_engine = None
 
-# Load resources before first request
+
 @app.before_request
-def before_first_request():
-    global db_manager, classifier, chatbot, analytics_engine
+def ensure_resources_loaded():
+    """Make sure resources are loaded before handling requests."""
+    global db_manager
     if db_manager is None:
         load_global_resources()
 
-# --- Utility Functions ---
-def get_farmer_id():
-    """Get farmer ID from request header or generate anonymous one"""
-    return request.headers.get('X-Farmer-ID', f'anon_{int(time.time())}')
 
-def format_disease_name(disease_label):
-    """Format disease label for display"""
-    formatted = disease_label.replace('___', ': ').replace('_', ' ')
-    return formatted
+# ----- Helpers -----
+def get_farmer_id() -> str:
+    """Get farmer id from header or generate an anonymous one."""
+    header = request.headers.get("X-Farmer-ID")
+    if header:
+        return header
+    return f"anon_{int(time.time())}"
 
-# --- API Endpoints ---
 
-@app.route('/', methods=['GET'])
+def format_disease_name(disease_label: str) -> str:
+    """Human-friendly disease name."""
+    return disease_label.replace("___", ": ").replace("_", " ")
+
+
+# ----- Endpoints -----
+@app.route("/", methods=["GET"])
 def home():
-    """Root endpoint"""
-    return jsonify({
-        "status": "success",
-        "message": "FarmAI Backend API",
-        "version": "1.0.0",
-        "endpoints": {
-            "health": "/api/health",
-            "predict": "/api/predict (POST)",
-            "chat": "/api/chat (POST)",
-            "analytics_summary": "/api/analytics/summary",
-            "analytics_trends": "/api/analytics/trends",
-            "disease_distribution": "/api/analytics/diseases"
+    return jsonify(
+        {
+            "status": "success",
+            "message": "FarmAI Backend API",
+            "version": "1.0.0",
+            "endpoints": {
+                "health": "/api/health",
+                "predict": "/api/predict (POST form-data 'file')",
+                "chat": "/api/chat (POST JSON {message})",
+                "analytics_summary": "/api/analytics/summary",
+            },
         }
-    }), 200
+    ), 200
 
-@app.route('/api/health', methods=['GET'])
+
+@app.route("/api/health", methods=["GET"])
 def health_check():
-    """Health check endpoint"""
-    model_loaded = bool(classifier and classifier.model)
+    model_loaded = bool(classifier and getattr(classifier, "model", None))
     chatbot_ready = bool(chatbot)
     db_ready = bool(db_manager)
-    
     status = "healthy" if (model_loaded and db_ready) else "degraded"
-    
-    return jsonify({
-        "status": status,
-        "message": "FarmAI backend is running",
-        "model_loaded": model_loaded,
-        "chatbot_initialized": chatbot_ready,
-        "database_connected": db_ready,
-        "timestamp": time.time()
-    }), 200
+    return jsonify(
+        {
+            "status": status,
+            "model_loaded": model_loaded,
+            "chatbot_initialized": chatbot_ready,
+            "database_connected": db_ready,
+            "timestamp": time.time(),
+        }
+    ), 200
 
-@app.route('/api/predict', methods=['POST'])
+
+@app.route("/api/predict", methods=["POST"])
 def predict_disease_api():
     """
-    Endpoint to predict crop disease from uploaded image
-    Accepts: multipart/form-data with 'file' key (NOT 'image')
+    Accepts multipart/form-data with key 'file' (or legacy 'image').
+    Returns JSON with prediction or friendly error message.
     """
-    # Check both 'file' (from React) and 'image' (legacy)
-    file = request.files.get('file') or request.files.get('image')
-    
+    file = request.files.get("file") or request.files.get("image")
     if not file:
-        return jsonify({
-            "status": "error",
-            "message": "No image file provided. Use 'file' key in form-data."
-        }), 400
+        return jsonify({"status": "error", "message": "No image file provided. Send form-data with key 'file'."}), 400
 
-    if file.filename == '':
-        return jsonify({
-            "status": "error",
-            "message": "No selected image file"
-        }), 400
+    if file.filename == "":
+        return jsonify({"status": "error", "message": "Uploaded file has no filename."}), 400
 
     try:
-        # Read image
-        image_data = file.read()
-        img = Image.open(io.BytesIO(image_data))
-        
-        # Convert to RGB if needed
-        if img.mode != 'RGB':
-            img = img.convert('RGB')
+        raw = file.read()
+        img = Image.open(io.BytesIO(raw))
+        if img.mode != "RGB":
+            img = img.convert("RGB")
 
-        # Make prediction
-        if classifier and classifier.model:
-            logger.info("🔬 Making real prediction with model...")
-            prediction_result = classifier.predict(img)
+        if classifier and getattr(classifier, "model", None):
+            logger.info("Running real model prediction.")
+            result = classifier.predict(img)
         else:
-            logger.warning("⚠️  Model not loaded. Using DEMO prediction")
-            # Simulate prediction
+            logger.info("Running demo prediction (model not loaded).")
             demo_diseases = [
-                'Tomato: Early Blight',
-                'Potato: Late Blight', 
-                'Apple: Apple Scab',
-                'Tomato: Healthy',
-                'Potato: Healthy'
+                "Tomato: Early Blight",
+                "Potato: Late Blight",
+                "Apple: Apple Scab",
+                "Tomato: Healthy",
+                "Potato: Healthy",
             ]
-            prediction_result = {
-                'disease': random.choice(demo_diseases),
-                'confidence': round(random.uniform(0.7, 0.95), 4),
-                'confidence_percentage': round(random.uniform(70, 95), 2),
-                'treatment': 'This is a DEMO prediction. Please load the model for real results.',
-                'severity': random.choice(['High', 'Medium', 'Low']),
-                'prediction_time': round(random.uniform(0.1, 0.5), 3),
-                'model_version': 'DEMO_v1.0',
-                'is_confident': True
+            conf = round(random.uniform(0.70, 0.95), 4)
+            result = {
+                "disease": random.choice(demo_diseases),
+                "confidence": conf,
+                "confidence_percentage": round(conf * 100, 2),
+                "treatment": "Demo: model not available.",
+                "severity": random.choice(["High", "Medium", "Low"]),
+                "prediction_time": round(random.uniform(0.1, 0.5), 3),
+                "model_version": "DEMO",
+                "is_confident": True,
             }
 
-        # Log to database
+        # Log prediction (best-effort)
         try:
             farmer_id = get_farmer_id()
             if db_manager:
-                # Ensure farmer exists
                 db_manager.add_farmer(farmer_id, name="Anonymous")
-                
-                # Save prediction
+                # Try to save prediction; use class id if available
+                predicted_id = result.get("class_id") or result.get("predicted_disease_id") or 1
                 db_manager.save_prediction(
                     farmer_id=farmer_id,
-                    predicted_disease_id=1,  # Default ID
-                    confidence=prediction_result['confidence'],
-                    model_version=prediction_result.get('model_version', '1.0'),
-                    prediction_time=prediction_result['prediction_time'],
-                    image_file=file.filename
+                    predicted_disease_id=int(predicted_id),
+                    confidence=float(result.get("confidence", 0)),
+                    model_version=result.get("model_version", "unknown"),
+                    prediction_time=float(result.get("prediction_time", 0)),
+                    image_file=file.filename,
                 )
-                logger.info(f"✅ Prediction logged for farmer {farmer_id}")
-        except Exception as db_error:
-            logger.error(f"Database logging failed: {db_error}")
-        
-        # Return success response
-        return jsonify({
-            "status": "success",
-            **prediction_result
-        }), 200
+                logger.info("Prediction logged for farmer %s", farmer_id)
+        except Exception:
+            logger.exception("Failed to log prediction to database.")
+
+        return jsonify({"status": "success", **result}), 200
 
     except Exception as e:
-        logger.error(f"❌ Prediction API error: {e}", exc_info=True)
-        return jsonify({
-            "status": "error",
-            "message": f"Prediction failed: {str(e)}"
-        }), 500
+        logger.exception("Prediction failed: %s", e)
+        return jsonify({"status": "error", "message": f"Prediction failed: {str(e)}"}), 500
 
-@app.route('/api/chat', methods=['POST'])
+
+@app.route("/api/chat", methods=["POST"])
 def chat_with_ai_api():
     """
-    AI chatbot endpoint
-    Accepts JSON: { "message": "your question", "crop": "Tomato", "language": "English" }
+    Accepts JSON: { "message": "...", "crop": "Tomato", "language": "English", "disease_context": "..." }
     """
-    data = request.get_json()
-    
-    # Handle both 'message' (from React) and 'query' (legacy)
-    farmer_query = data.get('message') or data.get('query')
-    crop_type = data.get('crop', 'General')
-    disease_context = data.get('disease_context')
-    language = data.get('language', 'English')
+    data = request.get_json(silent=True) or {}
+    farmer_query = data.get("message") or data.get("query")
+    crop_type = data.get("crop", "General")
+    disease_context = data.get("disease_context")
+    language = data.get("language", "English")
 
     if not farmer_query:
-        return jsonify({
-            "status": "error",
-            "message": "No message/query provided"
-        }), 400
+        return jsonify({"status": "error", "message": "No message provided."}), 400
 
     if not chatbot:
-        return jsonify({
-            "status": "error",
-            "message": "Chatbot service unavailable. Please configure GOOGLE_API_KEY"
-        }), 503
+        # fallback: return a helpful static response instead of failing
+        fallback = (
+            "Chat service currently unavailable. "
+            "You can still use the prediction endpoint for disease detection."
+        )
+        return jsonify({"status": "error", "message": fallback}), 503
 
     try:
-        logger.info(f"💬 Chat request: {farmer_query[:50]}...")
-        
         response_text, response_time = chatbot.generate_response(
             farmer_query=farmer_query,
             crop_type=crop_type,
             disease_name=disease_context,
-            language=language
+            language=language,
         )
 
-        # Log to database
+        # log chatbot interaction (best-effort)
         try:
             farmer_id = get_farmer_id()
             if db_manager:
@@ -313,131 +341,46 @@ def chat_with_ai_api():
                     query=farmer_query,
                     response=response_text,
                     language=language,
-                    response_time=response_time
+                    response_time=response_time,
                 )
-        except Exception as db_error:
-            logger.error(f"Database logging failed: {db_error}")
+        except Exception:
+            logger.exception("Failed to log chatbot interaction.")
 
-        return jsonify({
-            "status": "success",
-            "response": response_text,
-            "responseTime": round(response_time, 2)
-        }), 200
-
+        return jsonify({"status": "success", "response": response_text, "responseTime": round(response_time, 2)}), 200
     except Exception as e:
-        logger.error(f"❌ Chat API error: {e}", exc_info=True)
-        return jsonify({
-            "status": "error",
-            "message": f"Chat failed: {str(e)}"
-        }), 500
+        logger.exception("Chat endpoint failed: %s", e)
+        return jsonify({"status": "error", "message": f"Chat failed: {str(e)}"}), 500
 
-@app.route('/api/analytics/summary', methods=['GET'])
+
+@app.route("/api/analytics/summary", methods=["GET"])
 def get_analytics_summary_api():
-    """Get analytics summary metrics"""
+    if not analytics_engine:
+        return jsonify({"status": "error", "message": "Analytics engine not initialized."}), 503
     try:
-        if not analytics_engine:
-            return jsonify({
-                "status": "error",
-                "message": "Analytics engine not initialized"
-            }), 503
-        
         summary = analytics_engine.get_dashboard_metrics()
-        return jsonify({
-            "status": "success",
-            **summary
-        }), 200
-        
-    except Exception as e:
-        logger.error(f"❌ Analytics summary error: {e}", exc_info=True)
-        return jsonify({
-            "status": "error",
-            "message": f"Could not fetch analytics: {str(e)}"
-        }), 500
+        return jsonify({"status": "success", **summary}), 200
+    except Exception:
+        logger.exception("Failed to fetch analytics summary.")
+        return jsonify({"status": "error", "message": "Could not fetch analytics."}), 500
 
-@app.route('/api/analytics/trends', methods=['GET'])
-def get_analytics_trends_api():
-    """Get time-series trend data"""
-    days = request.args.get('days', 30, type=int)
-    
-    try:
-        if not analytics_engine:
-            return jsonify({
-                "status": "error",
-                "message": "Analytics engine not initialized"
-            }), 503
-        
-        trends = analytics_engine.get_trend_analysis(days)
-        return jsonify({
-            "status": "success",
-            **trends
-        }), 200
-        
-    except Exception as e:
-        logger.error(f"❌ Analytics trends error: {e}", exc_info=True)
-        return jsonify({
-            "status": "error",
-            "message": f"Could not fetch trends: {str(e)}"
-        }), 500
-
-@app.route('/api/analytics/diseases', methods=['GET'])
-def get_disease_distribution_api():
-    """Get disease distribution data"""
-    limit = request.args.get('limit', 10, type=int)
-    
-    try:
-        if not analytics_engine:
-            return jsonify({
-                "status": "error",
-                "message": "Analytics engine not initialized"
-            }), 503
-        
-        disease_dist_df = analytics_engine.get_disease_distribution(limit)
-        return jsonify({
-            "status": "success",
-            "data": disease_dist_df.to_dict(orient='records')
-        }), 200
-        
-    except Exception as e:
-        logger.error(f"❌ Disease distribution error: {e}", exc_info=True)
-        return jsonify({
-            "status": "error",
-            "message": f"Could not fetch disease data: {str(e)}"
-        }), 500
-
-# --- Error Handlers ---
 
 @app.errorhandler(404)
 def not_found(error):
-    return jsonify({
-        "status": "error",
-        "message": "Endpoint not found",
-        "available_endpoints": ["/api/health", "/api/predict", "/api/chat"]
-    }), 404
+    return jsonify({"status": "error", "message": "Endpoint not found"}), 404
+
 
 @app.errorhandler(500)
 def internal_error(error):
-    logger.error(f"Internal server error: {error}")
-    return jsonify({
-        "status": "error",
-        "message": "Internal server error"
-    }), 500
+    logger.exception("Internal server error: %s", error)
+    return jsonify({"status": "error", "message": "Internal server error"}), 500
 
-# --- Main Entry Point ---
-if __name__ == '__main__':
-    print("=" * 60)
-    print("🚀 FarmAI API Server Starting...")
-    print("=" * 60)
-    
-    # Load resources
+
+# ----- Main -----
+if __name__ == "__main__":
+    logger.info("Starting FarmAI API server...")
     load_global_resources()
-    
-    print(f"📡 Backend running at http://localhost:5050")
-    print(f"🏥 Health check: http://localhost:5050/api/health")
-    print("=" * 60)
-    
-    # Run Flask app
-    app.run(
-        host='0.0.0.0',
-        port=5050,
-        debug=True  # Set False for production
-    )
+    # quick health print
+    logger.info("Model loaded: %s", bool(classifier and getattr(classifier, "model", None)))
+    logger.info("Chatbot ready: %s", bool(chatbot))
+    logger.info("Database ready: %s", bool(db_manager))
+    app.run(host="0.0.0.0", port=5050, debug=False)

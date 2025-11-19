@@ -1,55 +1,28 @@
-# Virtual Environment
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
 venv/
 env/
 ENV/
-.venv/
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-*.egg-info/
-dist/
-build/
-
-# Environment variables
-.env
-.env.local
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
 
 # Logs
 logs/
 *.log
 
+# Data & models
+models/*.h5
+models/*.pkl
+data/
+dashboards/
+*.sqlite
+*.db
+
 # IDE
 .vscode/
 .idea/
-*.swp
-*.swo
-*~
-
-# OS
 .DS_Store
-Thumbs.db
 
-# Streamlit
-.streamlit/secrets.toml
-
-# Models (if large)
-models/*.h5
-models/*.pkl
-
-# Data files
-data/raw/*
-data/processed/*
-!data/.gitkeep
-
-# Temporary files
-*.tmp
-*.bak
+# Env
+.env
