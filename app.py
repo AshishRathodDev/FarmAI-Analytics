@@ -1,725 +1,419 @@
 """
-FarmAI Analytics Platform - Main Streamlit Application
-Complete production-ready agricultural AI platform
+FarmAI Disease Detection API
+Production-grade Flask REST API for crop disease prediction
 """
 
-import streamlit as st
-import pandas as pd
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from werkzeug.utils import secure_filename
+import tensorflow as tf
+from tensorflow import keras
 import numpy as np
 from PIL import Image
-import time
+import io
 import os
-from datetime import datetime, timedelta
-import plotly.express as px
-import plotly.graph_objects as go
-from pathlib import Path
+import logging
 
-# Import configuration
-try:
-    from config import (
-        PAGE_ICON, PAGE_TITLE, PAGE_LAYOUT, SUPPORTED_CROPS,
-        SUPPORTED_LANGUAGES, DATABASE_PATH, MODEL_PATH, GOOGLE_API_KEY
-    )
-    from src.database_manager import FarmAIDatabaseManager
-    from src.crop_classifier import CropDiseaseClassifier
-    from src.chatbot_agent import FarmAIChatbot
-    from src.analytics_engine import AnalyticsEngine
-except ImportError as e:
-    st.error(f"⚠️ Import Error: {str(e)}")
-    st.stop()
+# ==================== CONFIGURATION ====================
 
-# ==================== PAGE CONFIG ====================
-st.set_page_config(
-    page_title=PAGE_TITLE,
-    page_icon=PAGE_ICON,
-    layout=PAGE_LAYOUT,
-    initial_sidebar_state="expanded"
-)
+app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 
-# ==================== CUSTOM CSS ====================
-st.markdown("""
-<style>
-    .main-header {
-        font-size: 3rem;
-        font-weight: bold;
-        color: #2E7D32;
-        text-align: center;
-        padding: 1rem;
-    }
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 20px;
-        border-radius: 10px;
-        color: white;
-        text-align: center;
-    }
-    .success-box {
-        background-color: #d4edda;
-        border: 1px solid #c3e6cb;
-        border-radius: 5px;
-        padding: 15px;
-        margin: 10px 0;
-    }
-    .warning-box {
-        background-color: #fff3cd;
-        border: 1px solid #ffeaa7;
-        border-radius: 5px;
-        padding: 15px;
-        margin: 10px 0;
-    }
-</style>
-""", unsafe_allow_html=True)
+# Logging setup
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# ==================== INITIALIZE COMPONENTS ====================
-@st.cache_resource
-def initialize_components():
-    """Initialize all platform components"""
-    try:
-        db = FarmAIDatabaseManager(DATABASE_PATH)
-        
-        # Check if model exists
-        if not Path(MODEL_PATH).exists():
-            st.warning(f"⚠️ Model file not found at {MODEL_PATH}. Using demo mode.")
-            classifier = None
-        else:
-            classifier = CropDiseaseClassifier(MODEL_PATH)
-        
-        # Check if API key exists
-        if not GOOGLE_API_KEY:
-            st.warning("⚠️ GOOGLE_API_KEY not found. Chatbot will be limited.")
-            chatbot = None
-        else:
-            chatbot = FarmAIChatbot(GOOGLE_API_KEY)
-        
-        analytics = AnalyticsEngine(db)
-        
-        return db, classifier, chatbot, analytics
-    
-    except Exception as e:
-        st.error(f"❌ Initialization Error: {str(e)}")
-        return None, None, None, None
+# Model configuration
+MODEL_PATH = 'model.h5'
+IMAGE_SIZE = (224, 224)
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 
-# Initialize components
-db, classifier, chatbot, analytics = initialize_components()
+# ==================== DISEASE LABELS ====================
 
-# ==================== SESSION STATE ====================
-if 'chat_history' not in st.session_state:
-    st.session_state.chat_history = []
+# PlantVillage dataset labels (38 classes)
+LABEL_MAP = {
+    0: 'Apple___Apple_scab',
+    1: 'Apple___Black_rot',
+    2: 'Apple___Cedar_apple_rust',
+    3: 'Apple___healthy',
+    4: 'Blueberry___healthy',
+    5: 'Cherry_(including_sour)___Powdery_mildew',
+    6: 'Cherry_(including_sour)___healthy',
+    7: 'Corn_(maize)___Cercospora_leaf_spot Gray_leaf_spot',
+    8: 'Corn_(maize)___Common_rust_',
+    9: 'Corn_(maize)___Northern_Leaf_Blight',
+    10: 'Corn_(maize)___healthy',
+    11: 'Grape___Black_rot',
+    12: 'Grape___Esca_(Black_Measles)',
+    13: 'Grape___Leaf_blight_(Isariopsis_Leaf_Spot)',
+    14: 'Grape___healthy',
+    15: 'Orange___Haunglongbing_(Citrus_greening)',
+    16: 'Peach___Bacterial_spot',
+    17: 'Peach___healthy',
+    18: 'Pepper,_bell___Bacterial_spot',
+    19: 'Pepper,_bell___healthy',
+    20: 'Potato___Early_blight',
+    21: 'Potato___Late_blight',
+    22: 'Potato___healthy',
+    23: 'Raspberry___healthy',
+    24: 'Soybean___healthy',
+    25: 'Squash___Powdery_mildew',
+    26: 'Strawberry___Leaf_scorch',
+    27: 'Strawberry___healthy',
+    28: 'Tomato___Bacterial_spot',
+    29: 'Tomato___Early_blight',
+    30: 'Tomato___Late_blight',
+    31: 'Tomato___Leaf_Mold',
+    32: 'Tomato___Septoria_leaf_spot',
+    33: 'Tomato___Spider_mites Two-spotted_spider_mite',
+    34: 'Tomato___Target_Spot',
+    35: 'Tomato___Tomato_Yellow_Leaf_Curl_Virus',
+    36: 'Tomato___Tomato_mosaic_virus',
+    37: 'Tomato___healthy'
+}
 
-if 'farmer_id' not in st.session_state:
-    st.session_state.farmer_id = f"farmer_{int(time.time())}"
+# ==================== TREATMENT RECOMMENDATIONS ====================
 
-if 'current_disease' not in st.session_state:
-    st.session_state.current_disease = None
+TREATMENT_MAP = {
+    'Apple___Apple_scab': 'Apply fungicide (e.g., Captan, Mancozeb) every 7-10 days. Remove fallen leaves.',
+    'Apple___Black_rot': 'Prune infected branches. Apply fungicide during wet seasons. Improve air circulation.',
+    'Apple___Cedar_apple_rust': 'Remove nearby cedar trees if possible. Apply fungicide in spring.',
+    'Corn_(maize)___Common_rust_': 'Plant resistant varieties. Apply fungicide if severe. Ensure proper spacing.',
+    'Corn_(maize)___Northern_Leaf_Blight': 'Use resistant hybrids. Apply fungicide at first symptoms. Practice crop rotation.',
+    'Grape___Black_rot': 'Remove mummified berries. Apply fungicide (Mancozeb, Captan) regularly.',
+    'Grape___Esca_(Black_Measles)': 'No cure available. Remove severely infected vines. Ensure proper nutrition.',
+    'Potato___Early_blight': 'Apply fungicide (Chlorothalonil, Mancozeb). Remove lower infected leaves. Mulch soil.',
+    'Potato___Late_blight': 'Apply fungicide immediately (Metalaxyl, Mancozeb). Improve drainage. Destroy infected plants.',
+    'Tomato___Bacterial_spot': 'Use copper-based bactericides. Avoid overhead watering. Remove infected plants.',
+    'Tomato___Early_blight': 'Apply fungicide (Chlorothalonil). Remove infected leaves. Ensure proper spacing.',
+    'Tomato___Late_blight': 'Apply fungicide urgently (Mancozeb, Metalaxyl). Destroy infected plants immediately.',
+    'Tomato___Leaf_Mold': 'Improve ventilation. Reduce humidity. Apply fungicide (Chlorothalonil).',
+    'Tomato___Septoria_leaf_spot': 'Remove infected leaves. Apply fungicide. Avoid overhead irrigation.',
+    'Tomato___Spider_mites Two-spotted_spider_mite': 'Use miticides or neem oil. Increase humidity. Introduce predatory mites.',
+    'Tomato___Target_Spot': 'Apply fungicide. Improve air circulation. Practice crop rotation.',
+    'Tomato___Tomato_Yellow_Leaf_Curl_Virus': 'No cure. Control whiteflies. Remove infected plants. Use resistant varieties.',
+    'Tomato___Tomato_mosaic_virus': 'No cure. Remove infected plants. Disinfect tools. Plant resistant varieties.',
+    'Orange___Haunglongbing_(Citrus_greening)': 'No cure. Remove infected trees. Control Asian citrus psyllid. Use certified clean nursery stock.',
+    'Peach___Bacterial_spot': 'Use copper sprays. Prune to improve air flow. Plant resistant varieties.',
+    'Pepper,_bell___Bacterial_spot': 'Apply copper bactericide. Remove infected plants. Avoid overhead watering.',
+    'Squash___Powdery_mildew': 'Apply fungicide (Sulfur, Potassium bicarbonate). Ensure good air circulation.',
+    'Strawberry___Leaf_scorch': 'Remove infected leaves. Apply fungicide. Ensure proper plant spacing.',
+    'Cherry_(including_sour)___Powdery_mildew': 'Apply sulfur or fungicide. Prune for better air flow.',
+    'Corn_(maize)___Cercospora_leaf_spot Gray_leaf_spot': 'Use resistant hybrids. Apply fungicide if needed. Practice crop rotation.',
+    'Grape___Leaf_blight_(Isariopsis_Leaf_Spot)': 'Apply fungicide. Remove infected leaves. Improve vineyard sanitation.',
+    'Soybean___healthy': 'Plant is healthy! Continue regular monitoring and preventive care.',
+    'healthy': 'Plant is healthy! Continue with regular care and monitoring.'
+}
 
-if 'prediction_result' not in st.session_state:
-    st.session_state.prediction_result = None
+# Default treatment for healthy plants or unknown diseases
+DEFAULT_HEALTHY_TREATMENT = 'Plant appears healthy! Continue regular watering, proper fertilization, and monitor for early disease signs.'
+DEFAULT_TREATMENT = 'Consult local agricultural extension office for specific treatment. Practice good sanitation and crop rotation.'
+
+# ==================== GLOBAL MODEL VARIABLE ====================
+
+model = None
 
 # ==================== HELPER FUNCTIONS ====================
-def format_disease_name(disease_name: str) -> str:
-    """Format disease name for display"""
-    return disease_name.replace('___', ': ').replace('_', ' ').title()
 
-def get_severity_color(severity: str) -> str:
-    """Get color code for severity level"""
-    colors = {
-        'High': '#dc3545',
-        'Medium': '#ffc107',
-        'Low': '#28a745'
-    }
-    return colors.get(severity, '#6c757d')
+def allowed_file(filename):
+    """Check if file extension is allowed"""
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# ==================== MAIN UI ====================
-st.markdown(f'<h1 class="main-header">{PAGE_ICON} {PAGE_TITLE}</h1>', unsafe_allow_html=True)
-st.markdown("**🌾 Advanced AI-Powered Agricultural Assistant with Real-Time Analytics**")
+def format_disease_name(disease_label):
+    """Format disease label for display"""
+    # Replace underscores with spaces and format
+    formatted = disease_label.replace('___', ': ').replace('_', ' ')
+    return formatted
 
-# ==================== SIDEBAR ====================
-with st.sidebar:
-    st.header("🔧 Navigation")
+def get_treatment_recommendation(disease_label):
+    """Get treatment recommendation for disease"""
+    # Check if disease has specific treatment
+    if disease_label in TREATMENT_MAP:
+        return TREATMENT_MAP[disease_label]
     
-    page = st.radio(
-        "Select Feature",
-        ["🏠 Dashboard", "🤖 AI Chatbot", "📸 Disease Detection", 
-         "📊 Analytics", "👨‍🌾 Farmer Profile", "⚙️ Settings"],
-        label_visibility="collapsed"
-    )
+    # Check if healthy
+    if 'healthy' in disease_label.lower():
+        return DEFAULT_HEALTHY_TREATMENT
     
-    st.divider()
-    
-    # Farmer info
-    st.subheader("👨‍🌾 Current User")
-    st.caption(f"ID: {st.session_state.farmer_id[:12]}...")
-    
-    # Quick stats
-    if db:
-        try:
-            summary = db.get_analytics_summary()
-            st.metric("Your Queries", summary.get('total_queries', 0))
-            st.metric("Platform Users", summary.get('total_farmers', 0))
-        except:
-            pass
-    
-    st.divider()
-    st.caption("Made with ❤️ for Farmers")
+    # Default treatment
+    return DEFAULT_TREATMENT
 
-# ==================== PAGE 1: DASHBOARD ====================
-if page == "🏠 Dashboard":
-    st.header("📊 Platform Dashboard")
+def preprocess_image(image_bytes):
+    """
+    Preprocess image for model input
     
-    if not db:
-        st.error("Database not initialized")
-        st.stop()
-    
-    # Get metrics
+    Args:
+        image_bytes: Raw image bytes from upload
+        
+    Returns:
+        Preprocessed numpy array ready for prediction
+    """
     try:
-        metrics = analytics.get_dashboard_metrics()
+        # Load image from bytes
+        image = Image.open(io.BytesIO(image_bytes))
         
-        # Key Metrics Row
-        col1, col2, col3, col4 = st.columns(4)
+        # Convert to RGB (handle PNG with alpha channel)
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
         
-        with col1:
-            st.metric(
-                "Total Queries", 
-                f"{metrics['total_queries']:,}",
-                delta="+12 today",
-                delta_color="normal"
-            )
+        # Resize to model input size
+        image = image.resize(IMAGE_SIZE)
         
-        with col2:
-            st.metric(
-                "Active Farmers", 
-                f"{metrics['total_farmers']:,}",
-                delta="+3 this week"
-            )
+        # Convert to numpy array
+        image_array = np.array(image)
         
-        with col3:
-            st.metric(
-                "Avg Response Time", 
-                f"{metrics['avg_response_time']:.2f}s",
-                delta="-0.3s",
-                delta_color="inverse"
-            )
+        # Normalize pixel values to [0, 1] (for MobileNet/EfficientNet)
+        image_array = image_array.astype('float32') / 255.0
         
-        with col4:
-            st.metric(
-                "Model Accuracy", 
-                f"{metrics['model_accuracy']:.1f}%",
-                delta="+2.1%"
-            )
+        # Add batch dimension
+        image_array = np.expand_dims(image_array, axis=0)
         
-        st.divider()
-        
-        # Trends Section
-        st.subheader("📈 30-Day Trends")
-        
-        trends = analytics.get_trend_analysis(days=30)
-        
-        if trends and trends.get('total_queries_trend'):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                fig = px.line(
-                    x=trends['dates'],
-                    y=trends['total_queries_trend'],
-                    title="Daily Queries",
-                    labels={'x': 'Date', 'y': 'Number of Queries'}
-                )
-                fig.update_traces(line_color='#2E7D32', line_width=3)
-                st.plotly_chart(fig, use_container_width=True)
-            
-            with col2:
-                fig = px.line(
-                    x=trends['dates'],
-                    y=trends['avg_response_time_trend'],
-                    title="Average Response Time",
-                    labels={'x': 'Date', 'y': 'Response Time (seconds)'}
-                )
-                fig.update_traces(line_color='#1976D2', line_width=3)
-                st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("📊 No trend data available yet. Start using the platform to see analytics!")
-        
-        st.divider()
-        
-        # Disease Distribution
-        st.subheader("🦠 Top Detected Diseases")
-        
-        disease_dist = analytics.get_disease_distribution()
-        
-        if not disease_dist.empty:
-            fig = px.bar(
-                disease_dist,
-                x='disease_name',
-                y='count',
-                title="Disease Detection Frequency",
-                labels={'disease_name': 'Disease', 'count': 'Detections'},
-                color='count',
-                color_continuous_scale='Greens'
-            )
-            fig.update_xaxes(tickangle=-45)
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Table view
-            with st.expander("📋 View Detailed Statistics"):
-                st.dataframe(disease_dist, use_container_width=True)
-        else:
-            st.info("🔍 No disease data available yet. Upload images to start detecting diseases!")
-        
+        return image_array
+    
     except Exception as e:
-        st.error(f"Error loading dashboard: {str(e)}")
+        logger.error(f"Image preprocessing error: {str(e)}")
+        raise ValueError(f"Failed to preprocess image: {str(e)}")
 
-# ==================== PAGE 2: AI CHATBOT ====================
-elif page == "🤖 AI Chatbot":
-    st.header("💬 AI Agricultural Assistant")
+def load_model():
+    """Load TensorFlow model at startup"""
+    global model
     
-    if not chatbot:
-        st.error("⚠️ Chatbot not available. Please configure GOOGLE_API_KEY in environment.")
-        st.stop()
+    try:
+        if not os.path.exists(MODEL_PATH):
+            raise FileNotFoundError(f"Model file not found at {MODEL_PATH}")
+        
+        logger.info(f"Loading model from {MODEL_PATH}...")
+        model = keras.models.load_model(MODEL_PATH)
+        logger.info(f" Model loaded successfully!")
+        logger.info(f"Model input shape: {model.input_shape}")
+        logger.info(f"Model output shape: {model.output_shape}")
+        
+        return True
     
-    # Configuration
-    col1, col2, col3 = st.columns(3)
+    except Exception as e:
+        logger.error(f" Failed to load model: {str(e)}")
+        return False
+
+# ==================== API ENDPOINTS ====================
+
+@app.route('/', methods=['GET'])
+def home():
+    """Health check endpoint"""
+    return jsonify({
+        'status': 'success',
+        'message': 'FarmAI Disease Detection API is running',
+        'model_loaded': model is not None,
+        'version': '1.0.0',
+        'endpoints': {
+            'predict': '/api/predict (POST)',
+            'health': '/health (GET)'
+        }
+    })
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Health check for load balancers"""
+    if model is None:
+        return jsonify({
+            'status': 'unhealthy',
+            'message': 'Model not loaded'
+        }), 503
     
-    with col1:
-        crop_type = st.selectbox("🌱 Select Your Crop", SUPPORTED_CROPS)
+    return jsonify({
+        'status': 'healthy',
+        'model_loaded': True
+    })
+
+@app.route('/api/predict', methods=['POST'])
+def predict():
+    """
+    Main prediction endpoint
     
-    with col2:
-        language = st.selectbox("🗣️ Language", SUPPORTED_LANGUAGES)
+    Expects multipart/form-data with 'file' key containing image
     
-    with col3:
-        if st.session_state.current_disease:
-            st.info(f"🔬 Context: {format_disease_name(st.session_state.current_disease)}")
+    Returns JSON with:
+        - disease: Predicted disease name
+        - confidence: Model confidence score (0-1)
+        - recommendation: Treatment suggestion
+    """
+    try:
+        # Check if model is loaded
+        if model is None:
+            return jsonify({
+                'status': 'error',
+                'message': 'Model not loaded. Please restart the server.'
+            }), 500
+        
+        # Check if file is in request
+        if 'file' not in request.files:
+            return jsonify({
+                'status': 'error',
+                'message': 'No file provided. Please upload an image with key "file".'
+            }), 400
+        
+        file = request.files['file']
+        
+        # Check if file is selected
+        if file.filename == '':
+            return jsonify({
+                'status': 'error',
+                'message': 'No file selected.'
+            }), 400
+        
+        # Check file extension
+        if not allowed_file(file.filename):
+            return jsonify({
+                'status': 'error',
+                'message': f'Invalid file type. Allowed types: {", ".join(ALLOWED_EXTENSIONS)}'
+            }), 400
+        
+        # Read file bytes
+        file_bytes = file.read()
+        
+        # Check file size
+        if len(file_bytes) > MAX_FILE_SIZE:
+            return jsonify({
+                'status': 'error',
+                'message': f'File too large. Maximum size: {MAX_FILE_SIZE / (1024*1024):.0f}MB'
+            }), 400
+        
+        # Preprocess image
+        try:
+            processed_image = preprocess_image(file_bytes)
+        except ValueError as e:
+            return jsonify({
+                'status': 'error',
+                'message': str(e)
+            }), 400
+        
+        # Make prediction
+        try:
+            predictions = model.predict(processed_image, verbose=0)
+            
+            # Get predicted class and confidence
+            predicted_class_idx = int(np.argmax(predictions[0]))
+            confidence_score = float(np.max(predictions[0]))
+            
+            # Get disease label
+            disease_label = LABEL_MAP.get(predicted_class_idx, f'Unknown_Disease_{predicted_class_idx}')
+            
+            # Format disease name
+            disease_name = format_disease_name(disease_label)
+            
+            # Get treatment recommendation
+            recommendation = get_treatment_recommendation(disease_label)
+            
+            # Get top 3 predictions for additional info
+            top_3_indices = np.argsort(predictions[0])[-3:][::-1]
+            top_3_predictions = [
+                {
+                    'disease': format_disease_name(LABEL_MAP.get(int(idx), f'Unknown_{idx}')),
+                    'confidence': float(predictions[0][idx])
+                }
+                for idx in top_3_indices
+            ]
+            
+            # Log prediction
+            logger.info(f"Prediction: {disease_name} (confidence: {confidence_score:.4f})")
+            
+            # Return success response
+            return jsonify({
+                'status': 'success',
+                'disease': disease_name,
+                'confidence': round(confidence_score, 4),
+                'confidence_percentage': round(confidence_score * 100, 2),
+                'recommendation': recommendation,
+                'top_predictions': top_3_predictions,
+                'model_version': '1.0'
+            }), 200
+        
+        except Exception as e:
+            logger.error(f"Prediction error: {str(e)}")
+            return jsonify({
+                'status': 'error',
+                'message': 'Prediction failed. Please try again with a different image.',
+                'error_details': str(e)
+            }), 500
     
-    st.divider()
+    except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': 'An unexpected error occurred.',
+            'error_details': str(e)
+        }), 500
+
+# ==================== ERROR HANDLERS ====================
+
+@app.errorhandler(404)
+def not_found(error):
+    """Handle 404 errors"""
+    return jsonify({
+        'status': 'error',
+        'message': 'Endpoint not found. Available endpoints: /, /health, /api/predict'
+    }), 404
+
+@app.errorhandler(405)
+def method_not_allowed(error):
+    """Handle 405 errors"""
+    return jsonify({
+        'status': 'error',
+        'message': 'Method not allowed. Use POST for /api/predict'
+    }), 405
+
+@app.errorhandler(413)
+def request_entity_too_large(error):
+    """Handle file too large errors"""
+    return jsonify({
+        'status': 'error',
+        'message': f'File too large. Maximum size: {MAX_FILE_SIZE / (1024*1024):.0f}MB'
+    }), 413
+
+@app.errorhandler(500)
+def internal_error(error):
+    """Handle 500 errors"""
+    logger.error(f"Internal server error: {str(error)}")
+    return jsonify({
+        'status': 'error',
+        'message': 'Internal server error. Please try again later.'
+    }), 500
+
+# ==================== APPLICATION STARTUP ====================
+
+def initialize_app():
+    """Initialize application and load model"""
+    logger.info("=" * 50)
+    logger.info(" FarmAI Disease Detection API Starting...")
+    logger.info("=" * 50)
     
-    # Chat Interface
-    user_input = st.text_area(
-        "💬 Ask Your Question:",
-        height=120,
-        placeholder="Example: Why are my tomato leaves turning yellow? What should I do?"
+    # Load model
+    model_loaded = load_model()
+    
+    if not model_loaded:
+        logger.warning("  API starting without model. Predictions will fail.")
+    
+    logger.info("=" * 50)
+    logger.info(" API Ready!")
+    logger.info(" Available endpoints:")
+    logger.info(" GET  /           - API info")
+    logger.info(" GET  /health     - Health check")
+    logger.info(" POST /api/predict - Disease prediction")
+    logger.info("=" * 50)
+
+# ==================== MAIN ENTRY POINT ====================
+
+if __name__ == '__main__':
+    # Initialize app
+    initialize_app()
+    
+    # Run Flask app
+    # For production, use Gunicorn: gunicorn -w 4 -b 0.0.0.0:5000 app:app
+    app.run(
+        host='0.0.0.0',
+        port=5050,
+        debug=False  # Set to False in production
     )
     
-    col1, col2 = st.columns([3, 1])
     
-    with col1:
-        ask_button = st.button("🚀 Get AI Answer", use_container_width=True, type="primary")
     
-    with col2:
-        if st.button("🗑️ Clear History", use_container_width=True):
-            st.session_state.chat_history = []
-            st.success("Chat history cleared!")
-            st.rerun()
-    
-    if ask_button and user_input:
-        with st.spinner("🤖 AI is thinking..."):
-            try:
-                response, response_time = chatbot.generate_response(
-                    user_input,
-                    crop_type,
-                    disease_name=st.session_state.current_disease,
-                    language=language
-                )
-                
-                # Display response
-                st.success(f"✅ Response generated in {response_time:.2f}s")
-                
-                with st.container():
-                    st.markdown("### 💡 AI Response:")
-                    st.markdown(response)
-                
-                # Save to database
-                if db:
-                    db.save_query(
-                        st.session_state.farmer_id,
-                        user_input,
-                        response,
-                        response_time,
-                        language=language
-                    )
-                    
-                    db.log_chatbot_interaction(
-                        st.session_state.farmer_id,
-                        user_input,
-                        response,
-                        language,
-                        response_time
-                    )
-                
-                # Add to session history
-                st.session_state.chat_history.append({
-                    'query': user_input,
-                    'response': response,
-                    'time': response_time,
-                    'crop': crop_type,
-                    'language': language,
-                    'timestamp': datetime.now()
-                })
-                
-            except Exception as e:
-                st.error(f"❌ Error: {str(e)}")
-    
-    # Chat History
-    if st.session_state.chat_history:
-        st.divider()
-        st.subheader("📜 Recent Conversations")
-        
-        for i, msg in enumerate(reversed(st.session_state.chat_history[-5:])):
-            with st.expander(
-                f"🗨️ Q{len(st.session_state.chat_history)-i}: {msg['query'][:60]}...",
-                expanded=(i == 0)
-            ):
-                st.markdown(f"**🌱 Crop:** {msg['crop']}")
-                st.markdown(f"**📅 Time:** {msg['timestamp'].strftime('%Y-%m-%d %H:%M')}")
-                st.markdown(f"**⏱️ Response Time:** {msg['time']:.2f}s")
-                st.markdown("---")
-                st.markdown(f"**💬 Question:**\n{msg['query']}")
-                st.markdown(f"**💡 Answer:**\n{msg['response']}")
-
-# ==================== PAGE 3: DISEASE DETECTION ====================
-elif page == "📸 Disease Detection":
-    st.header("🔍 Crop Disease Detection")
-    
-    if not classifier:
-        st.warning("⚠️ Model not loaded. Please ensure crop_disease_model.h5 exists in models/ folder")
-        st.info("You can still test the UI - predictions will be simulated")
-    
-    # Configuration
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        crop_type = st.selectbox("🌱 Select Crop Type", SUPPORTED_CROPS)
-    
-    with col2:
-        uploaded_file = st.file_uploader(
-            "📁 Upload Crop Leaf Image",
-            type=['jpg', 'jpeg', 'png'],
-            help="Upload a clear photo of the affected crop leaf"
-        )
-    
-    if uploaded_file:
-        image = Image.open(uploaded_file)
-        
-        col1, col2 = st.columns([1, 1])
-        
-        with col1:
-            st.image(image, caption="Uploaded Image", use_column_width=True)
-            
-            st.markdown("### 📋 Image Information")
-            st.write(f"**Format:** {image.format}")
-            st.write(f"**Size:** {image.size}")
-            st.write(f"**Mode:** {image.mode}")
-        
-        with col2:
-            if st.button("🔬 Analyze Disease", use_container_width=True, type="primary"):
-                with st.spinner("🔍 Analyzing image..."):
-                    try:
-                        if classifier:
-                            prediction = classifier.predict(image)
-                        else:
-                            # Simulation mode
-                            import random
-                            prediction = {
-                                'disease': random.choice(['Tomato Early Blight', 'Potato Late Blight', 'Healthy']),
-                                'confidence': random.uniform(0.75, 0.98),
-                                'confidence_percentage': random.uniform(75, 98),
-                                'treatment': 'Apply fungicide treatment',
-                                'severity': random.choice(['High', 'Medium', 'Low']),
-                                'prediction_time': random.uniform(0.5, 2.0),
-                                'model_version': 'Demo v1.0'
-                            }
-                        
-                        if 'error' not in prediction:
-                            st.success("✅ Analysis Complete!")
-                            
-                            # Store in session
-                            st.session_state.prediction_result = prediction
-                            st.session_state.current_disease = prediction['disease']
-                            
-                            # Display results
-                            st.markdown("### 🎯 Detection Results")
-                            
-                            col1, col2, col3 = st.columns(3)
-                            
-                            with col1:
-                                st.metric("Disease", format_disease_name(prediction['disease']))
-                            
-                            with col2:
-                                confidence_pct = prediction.get('confidence_percentage', prediction['confidence'] * 100)
-                                st.metric("Confidence", f"{confidence_pct:.1f}%")
-                            
-                            with col3:
-                                severity = prediction.get('severity', 'Medium')
-                                severity_color = get_severity_color(severity)
-                                st.markdown(f"**Severity:** <span style='color:{severity_color};font-weight:bold;font-size:1.2em'>{severity}</span>", unsafe_allow_html=True)
-                            
-                            # Treatment recommendations
-                            st.markdown("### 💊 Treatment Recommendations")
-                            st.info(prediction.get('treatment', 'Consult agricultural expert'))
-                            
-                            # Save to database
-                            if db:
-                                db.save_prediction(
-                                    st.session_state.farmer_id,
-                                    predicted_disease_id=1,  # Would map disease name to ID
-                                    confidence=prediction['confidence'],
-                                    model_version=prediction.get('model_version', '1.0'),
-                                    prediction_time=prediction.get('prediction_time', 0),
-                                    image_file=uploaded_file.name
-                                )
-                            
-                            # Quick action button
-                            if st.button("💬 Ask AI About This Disease", use_container_width=True):
-                                st.session_state.page = "🤖 AI Chatbot"
-                                st.rerun()
-                        
-                        else:
-                            st.error(f"❌ Error: {prediction['error']}")
-                    
-                    except Exception as e:
-                        st.error(f"❌ Prediction Error: {str(e)}")
-
-# ==================== PAGE 4: ANALYTICS ====================
-elif page == "📊 Analytics":
-    st.header("📈 Advanced Analytics Dashboard")
-    
-    if not db:
-        st.error("Database not available")
-        st.stop()
-    
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "📈 Trends", "🦠 Diseases", "💾 Export"])
-    
-    with tab1:
-        st.subheader("Key Performance Indicators")
-        
-        metrics = analytics.get_dashboard_metrics()
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("### 📊 Usage Metrics")
-            data = {
-                'Metric': ['Total Queries', 'Active Farmers', 'Total Predictions', 'Avg Confidence'],
-                'Value': [
-                    metrics['total_queries'],
-                    metrics['total_farmers'],
-                    metrics['total_predictions'],
-                    f"{metrics.get('avg_confidence', 0):.2%}"
-                ]
-            }
-            st.dataframe(pd.DataFrame(data), use_container_width=True, hide_index=True)
-        
-        with col2:
-            st.markdown("### ⚡ Performance Metrics")
-            data = {
-                'Metric': ['Avg Response Time', 'Model Accuracy', 'Top Disease', 'Platform Status'],
-                'Value': [
-                    f"{metrics['avg_response_time']}s",
-                    f"{metrics['model_accuracy']}%",
-                    metrics['top_disease'],
-                    '🟢 Active'
-                ]
-            }
-            st.dataframe(pd.DataFrame(data), use_container_width=True, hide_index=True)
-    
-    with tab2:
-        st.subheader("📈 Time Series Analysis")
-        
-        days = st.slider("Select Time Period (days)", 7, 90, 30)
-        trends = analytics.get_trend_analysis(days)
-        
-        if trends and trends.get('total_queries_trend'):
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=trends['dates'],
-                y=trends['total_queries_trend'],
-                mode='lines+markers',
-                name='Queries',
-                line=dict(color='#2E7D32', width=3)
-            ))
-            fig.update_layout(
-                title=f"Query Trends - Last {days} Days",
-                xaxis_title="Date",
-                yaxis_title="Number of Queries",
-                hovermode='x unified'
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No trend data available yet")
-    
-    with tab3:
-        st.subheader("🦠 Disease Analytics")
-        
-        disease_dist = analytics.get_disease_distribution(limit=15)
-        
-        if not disease_dist.empty:
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                fig = px.pie(
-                    disease_dist,
-                    values='count',
-                    names='disease_name',
-                    title="Disease Distribution"
-                )
-                st.plotly_chart(fig, use_container_width=True)
-            
-            with col2:
-                fig = px.bar(
-                    disease_dist.head(10),
-                    x='count',
-                    y='disease_name',
-                    orientation='h',
-                    title="Top 10 Diseases",
-                    color='avg_confidence',
-                    color_continuous_scale='Greens'
-                )
-                st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No disease data available")
-    
-    with tab4:
-        st.subheader("💾 Export Data for Power BI / Tableau")
-        
-        st.markdown("""
-        Export your analytics data for advanced visualization in:
-        - **Power BI Desktop**
-        - **Tableau Public**
-        - **Excel Analysis**
-        """)
-        
-        if st.button("📥 Export Analytics Data", type="primary", use_container_width=True):
-            try:
-                filepath = db.export_analytics_data()
-                st.success(f"✅ Data exported successfully to: {filepath}")
-                
-                with open(filepath, 'rb') as f:
-                    st.download_button(
-                        label="⬇️ Download CSV File",
-                        data=f,
-                        file_name="farmai_analytics_export.csv",
-                        mime="text/csv",
-                        use_container_width=True
-                    )
-            except Exception as e:
-                st.error(f"Export failed: {str(e)}")
-
-# ==================== PAGE 5: FARMER PROFILE ====================
-elif page == "👨‍🌾 Farmer Profile":
-    st.header("👨‍🌾 Farmer Profile & History")
-    
-    farmer_id = st.session_state.farmer_id
-    
-    # Farmer info form
-    with st.form("farmer_info"):
-        st.subheader("📝 Update Your Information")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            name = st.text_input("Full Name")
-            phone = st.text_input("Phone Number")
-            village = st.text_input("Village")
-        
-        with col2:
-            district = st.text_input("District")
-            state = st.text_input("State")
-            farm_size = st.number_input("Farm Size (acres)", min_value=0.0, step=0.5)
-        
-        crops = st.multiselect("Crops You Grow", SUPPORTED_CROPS)
-        
-        if st.form_submit_button("💾 Save Profile", use_container_width=True):
-            if name and db:
-                success = db.add_farmer(
-                    farmer_id, name, phone, village, district, 
-                    state, ', '.join(crops), farm_size
-                )
-                if success:
-                    st.success("✅ Profile updated successfully!")
-            else:
-                st.warning("Please enter your name")
-    
-    st.divider()
-    
-    # Query history
-    if db:
-        st.subheader("📜 Your Query History")
-        history = db.get_farmer_history(farmer_id, limit=20)
-        
-        if not history.empty:
-            st.dataframe(history, use_container_width=True)
-        else:
-            st.info("No query history yet. Start using the platform!")
-
-# ==================== PAGE 6: SETTINGS ====================
-elif page == "⚙️ Settings":
-    st.header("⚙️ Platform Settings")
-    
-    tab1, tab2, tab3 = st.tabs(["🔧 General", "ℹ️ System Info", "🗄️ Database"])
-    
-    with tab1:
-        st.subheader("General Settings")
-        
-        st.text_input("Farmer ID (Read-only)", value=st.session_state.farmer_id, disabled=True)
-        
-        if st.button("🔄 Generate New Farmer ID"):
-            st.session_state.farmer_id = f"farmer_{int(time.time())}"
-            st.success("New Farmer ID generated!")
-            st.rerun()
-        
-        st.divider()
-        
-        if st.button("🗑️ Clear All Chat History", type="secondary"):
-            st.session_state.chat_history = []
-            st.success("Chat history cleared!")
-        
-        if st.button("🔄 Reset All Session Data", type="secondary"):
-            st.session_state.clear()
-            st.success("Session reset! Refresh the page.")
-    
-    with tab2:
-        st.subheader("System Information")
-        
-        info = {
-            "Platform Version": "1.0.0",
-            "Model Version": "MobileNetV2 v1.0",
-            "Database": DATABASE_PATH,
-            "Model Path": MODEL_PATH,
-            "Chatbot Engine": "Google Gemini Pro",
-            "Status": "🟢 Operational"
-        }
-        
-        for key, value in info.items():
-            col1, col2 = st.columns([1, 2])
-            with col1:
-                st.markdown(f"**{key}:**")
-            with col2:
-                st.write(value)
-    
-    with tab3:
-        st.subheader("Database Management")
-        
-        if db:
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                if st.button("💾 Backup Database", use_container_width=True):
-                    if db.backup_database():
-                        st.success("✅ Database backed up successfully!")
-            
-            with col2:
-                if st.button("📥 Export Analytics", use_container_width=True):
-                    filepath = db.export_analytics_data()
-                    st.success(f"✅ Exported to {filepath}")
-
-# ==================== FOOTER ====================
-st.divider()
-st.markdown("""
-<div style="text-align: center; color: #666; padding: 20px;">
-    <p><strong>🌾 FarmAI Analytics Platform</strong> | Version 1.0.0</p>
-    <p>Built with ❤️ for Indian Farmers | 
-    <a href="https://github.com/AshishRathodDev/FarmAI-Analytics-Platform">GitHub</a> | 
-    <a href="#">Documentation</a></p>
-    <p style="font-size: 12px; margin-top: 10px;">
-    ⚠️ For educational and demonstration purposes. Always consult agricultural experts for critical decisions.
-    </p>
-</div>
-""", unsafe_allow_html=True)

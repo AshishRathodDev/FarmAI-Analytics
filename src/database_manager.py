@@ -175,7 +175,7 @@ class FarmAIDatabaseManager:
         
         conn.commit()
         conn.close()
-        logger.info("✅ All 8 tables created successfully")
+        logger.info(" All 8 tables created successfully")
     
     # ==================== FARMERS TABLE OPERATIONS ====================
     
@@ -193,7 +193,7 @@ class FarmAIDatabaseManager:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (farmer_id, name, phone, village, district, state, crops, farm_size, datetime.now()))
             conn.commit()
-            logger.info(f"✅ Farmer added: {farmer_id}")
+            logger.info(f" Farmer added: {farmer_id}")
             return True
         except sqlite3.IntegrityError:
             # Farmer already exists, update last_active
@@ -204,7 +204,7 @@ class FarmAIDatabaseManager:
             logger.info(f"⚡ Farmer updated: {farmer_id}")
             return True
         except Exception as e:
-            logger.error(f"❌ Error adding farmer: {str(e)}")
+            logger.error(f" Error adding farmer: {str(e)}")
             return False
         finally:
             conn.close()
@@ -253,7 +253,7 @@ class FarmAIDatabaseManager:
                   prevention, severity, image_chars))
             conn.commit()
             disease_id = cursor.lastrowid
-            logger.info(f"✅ Disease added: {disease_name}")
+            logger.info(f" Disease added: {disease_name}")
             return disease_id
         except sqlite3.IntegrityError:
             # Disease exists, get its ID
@@ -261,7 +261,7 @@ class FarmAIDatabaseManager:
             result = cursor.fetchone()
             return result[0] if result else None
         except Exception as e:
-            logger.error(f"❌ Error adding disease: {str(e)}")
+            logger.error(f" Error adding disease: {str(e)}")
             return None
         finally:
             conn.close()
@@ -308,10 +308,10 @@ class FarmAIDatabaseManager:
             ''', (farmer_id, crop_id, disease_id, query_text, language, 
                   response_text, response_time, confidence, helpful))
             conn.commit()
-            logger.info(f"✅ Query saved for farmer {farmer_id}")
+            logger.info(f" Query saved for farmer {farmer_id}")
             return True
         except Exception as e:
-            logger.error(f"❌ Error saving query: {str(e)}")
+            logger.error(f" Error saving query: {str(e)}")
             return False
         finally:
             conn.close()
@@ -338,10 +338,10 @@ class FarmAIDatabaseManager:
                   confidence, model_version, prediction_time, 
                   actual_disease_id, is_correct))
             conn.commit()
-            logger.info(f"✅ Prediction saved for farmer {farmer_id}")
+            logger.info(f" Prediction saved for farmer {farmer_id}")
             return True
         except Exception as e:
-            logger.error(f"❌ Error saving prediction: {str(e)}")
+            logger.error(f" Error saving prediction: {str(e)}")
             return False
         finally:
             conn.close()
@@ -367,7 +367,7 @@ class FarmAIDatabaseManager:
             conn.commit()
             return True
         except Exception as e:
-            logger.error(f"❌ Error logging chatbot: {str(e)}")
+            logger.error(f" Error logging chatbot: {str(e)}")
             return False
         finally:
             conn.close()
@@ -519,7 +519,7 @@ class FarmAIDatabaseManager:
         df.to_csv(filepath, index=False)
         conn.close()
         
-        logger.info(f"✅ Analytics data exported to {filepath}")
+        logger.info(f" Analytics data exported to {filepath}")
         return filepath
     
     def backup_database(self, backup_path: str = None) -> bool:
@@ -530,8 +530,8 @@ class FarmAIDatabaseManager:
         try:
             import shutil
             shutil.copy2(self.db_path, backup_path)
-            logger.info(f"✅ Database backed up to {backup_path}")
+            logger.info(f" Database backed up to {backup_path}")
             return True
         except Exception as e:
-            logger.error(f"❌ Backup failed: {str(e)}")
+            logger.error(f" Backup failed: {str(e)}")
             return False
