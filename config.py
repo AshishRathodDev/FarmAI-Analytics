@@ -3,6 +3,7 @@ FarmAI Analytics Platform - Configuration Module
 Complete configuration management for production deployment
 """
 
+# config.py (replace top section)
 from pathlib import Path
 import os
 from dotenv import load_dotenv
@@ -10,27 +11,31 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
 
-# ==================== API CONFIGURATION ====================
-GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
-
-# ==================== PATHS & DIRECTORIES ====================
+# Ensure important directories exist before logging or other modules run
 MODELS_DIR = BASE_DIR / "models"
 LOGS_DIR = BASE_DIR / "logs"
 DATA_DIR = BASE_DIR / "data"
 
-# ensure directories exist early
 for p in (MODELS_DIR, LOGS_DIR, DATA_DIR, DATA_DIR / "raw", DATA_DIR / "processed"):
     p.mkdir(parents=True, exist_ok=True)
 
+# Env & keys
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+
+# Paths
 DATABASE_PATH = BASE_DIR / 'farmer_analytics.db'
+DATABASE_BACKUP_PATH = BASE_DIR / 'farmer_analytics_backup.db'
 MODEL_PATH = MODELS_DIR / 'crop_disease_classifier_final.h5'
 MODEL_METADATA_PATH = MODELS_DIR / 'model_metadata.json'
 CLASS_INDICES_PATH = MODELS_DIR / 'class_indices.json'
+
+# Model params (keep your existing constants after this)
 IMAGE_SIZE = (224, 224)
 CONFIDENCE_THRESHOLD = 0.65
 BATCH_SIZE = 32
 EPOCHS = 30
 LEARNING_RATE = 0.001
+
 
 # ==================== DATA CONFIGURATION ====================
 BASE_DIR = Path(__file__).parent

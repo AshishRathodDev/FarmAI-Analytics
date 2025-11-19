@@ -11,9 +11,16 @@ from pathlib import Path
 import logging
 from typing import Optional, Dict, List, Tuple
 
+
+
+LOGS_DIR = Path(__file__).resolve().parent.parent / "logs"  
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE = LOGS_DIR / "app.log"
+
+
 # Setup logging
 logging.basicConfig(
-    filename='logs/app.log',
+    filename=str(LOG_FILE),
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
