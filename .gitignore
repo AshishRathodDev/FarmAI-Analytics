@@ -26,3 +26,4 @@ dashboards/
 
 # Env
 .env
+farmai-react-ui/.env
