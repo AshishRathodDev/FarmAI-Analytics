@@ -708,6 +708,6 @@ This software is provided for educational and research purposes. While we strive
 [⬆ Back to Top](#-farmai-analytics---ai-powered-crop-disease-detection-platform)
 
 </div>
-```
+
 
 
