@@ -56,8 +56,7 @@
 
 ## 🎯 Live Demo
 
-🌐 **Frontend**: [http://localhost:5173](http://localhost:5173)  
-🔧 **Backend API**: [http://localhost:5050](http://localhost:5050)
+🌐 **FarmAI Production Demo:** [https://farm-ai-ten.vercel.app/](https://farm-ai-ten.vercel.app/)
 
 ### Quick Demo Credentials
 ```
