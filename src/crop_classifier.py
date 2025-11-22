@@ -9,7 +9,6 @@ import json
 import time
 import logging
 
-# Optional imports that may fail on some systems (TensorFlow on mac M1 etc.)
 try:
     import tensorflow as tf
 except Exception:
@@ -20,7 +19,6 @@ try:
 except Exception as e:
     raise ImportError("numpy is required for crop_classifier.py") from e
 
-# cv2 is optional for some environments; fallback to PIL processing if not available
 try:
     import cv2
 except Exception:
@@ -28,12 +26,10 @@ except Exception:
 
 from PIL import Image
 
-# Ensure logs dir exists
 LOGS_DIR = Path(__file__).resolve().parent.parent / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = LOGS_DIR / "app.log"
 
-# Setup logging (safe even if main app configures logging earlier)
 logging.basicConfig(
     filename=str(LOG_FILE),
     level=logging.INFO,
@@ -45,9 +41,6 @@ logger = logging.getLogger(__name__)
 class CropDiseaseClassifier:
     """
     Load trained TensorFlow model and perform disease predictions.
-
-    If TensorFlow or the model file is not available, the classifier will run in DEMO mode
-    and return simulated predictions (useful for UI testing).
     """
 
     def __init__(self, model_path: Union[str, Path] = "models/crop_disease_model.h5",
@@ -59,7 +52,6 @@ class CropDiseaseClassifier:
         self.image_size = tuple(image_size)
         self.confidence_threshold = float(confidence_threshold)
 
-        # Default disease classes (fallback if class indices are not provided)
         self.disease_classes: Dict[int, str] = {
             0: 'Apple___Apple_scab',
             1: 'Apple___Black_rot',
@@ -89,36 +81,25 @@ class CropDiseaseClassifier:
             25: 'Tomato___healthy'
         }
 
-        # Treatment templates are provided by the app; classifier calls a helper to fetch them
         self.treatment_database = self._init_treatment_database()
-
-        # Load model and class indices (if present)
         self._load_model_and_classes()
 
     def _load_model_and_classes(self) -> None:
-        
-        # Load class indices from sibling JSON file (modelname_class_indices.json) or generic class_indices.json
-        # --- REPLACE existing candidate handling with this safe block ---
+        # FIXED: Safe path construction without with_suffix on already-constructed paths
         candidates = [
-            # modelname_class_indices.json (same folder)
             self.model_path.parent / f"{self.model_path.stem}_class_indices.json",
-            # generic class_indices.json in same folder
             self.model_path.parent / "class_indices.json",
-            # fallback: models/class_indices.json (already covered above, but keep for clarity)
             Path("models") / "class_indices.json"
         ]
 
-        # Try to load first existing candidate
         for p in candidates:
             try:
                 if p.exists():
                     with open(p, "r", encoding="utf-8") as f:
                         j = json.load(f)
-                        # If keys are numeric strings -> convert to int keys
                         if all(str(k).isdigit() for k in j.keys()):
                             self.class_indices = {int(k): v for k, v in j.items()}
                         else:
-                            # assume name->index mapping, invert to index->name where possible
                             inv = {}
                             for name, idx in j.items():
                                 try:
@@ -128,7 +109,6 @@ class CropDiseaseClassifier:
                             if inv:
                                 self.class_indices = inv
                             else:
-                                # fallback: keep original mapping (may be name->index)
                                 self.class_indices = j
                     logger.info("Loaded class indices from %s", str(p))
                     break
@@ -136,7 +116,6 @@ class CropDiseaseClassifier:
                 logger.warning("Failed to load class indices from %s: %s", str(p), str(e))
                 continue
 
-        # If class_indices loaded and keys are ints, update disease_classes fallback
         if isinstance(self.class_indices, dict) and all(isinstance(k, int) for k in self.class_indices.keys()):
             for idx, name in self.class_indices.items():
                 try:
@@ -144,9 +123,8 @@ class CropDiseaseClassifier:
                 except Exception:
                     continue
 
-        # Load TensorFlow model if possible
         if tf is None:
-            logger.warning("TensorFlow is not available in this environment. Running in demo mode.")
+            logger.warning("TensorFlow is not available. Running in demo mode.")
             self.model = None
             return
 
@@ -162,15 +140,9 @@ class CropDiseaseClassifier:
             self.model = None
 
     def preprocess_image(self, image_input: Union[str, Image.Image, np.ndarray]) -> np.ndarray:
-        """
-        Preprocess image for model input.
-        Accepts file path string, PIL Image, or numpy array.
-        Returns numpy array shaped (H, W, C) normalized to [0,1].
-        """
+        """Preprocess image for model input."""
         try:
-            # Load image according to type
             if isinstance(image_input, str):
-                # path
                 if cv2 is not None:
                     image_bgr = cv2.imread(image_input)
                     if image_bgr is None:
@@ -183,13 +155,11 @@ class CropDiseaseClassifier:
                 image = np.array(image_input.convert("RGB"))
             elif isinstance(image_input, np.ndarray):
                 image = image_input
-                # if grayscale expand dims
                 if image.ndim == 2:
                     image = np.stack([image] * 3, axis=-1)
             else:
                 raise ValueError(f"Unsupported image type: {type(image_input)}")
 
-            # Resize with cv2 if available for speed, else use PIL
             target_w, target_h = self.image_size
             if cv2 is not None and isinstance(image, np.ndarray):
                 image_resized = cv2.resize(image, (target_w, target_h), interpolation=cv2.INTER_AREA)
@@ -200,11 +170,9 @@ class CropDiseaseClassifier:
 
             image_resized = image_resized.astype("float32") / 255.0
 
-            # Ensure shape (H, W, 3)
             if image_resized.ndim == 2:
                 image_resized = np.stack([image_resized] * 3, axis=-1)
             if image_resized.shape[-1] == 4:
-                # drop alpha if present
                 image_resized = image_resized[..., :3]
 
             return image_resized
@@ -214,10 +182,7 @@ class CropDiseaseClassifier:
             raise
 
     def predict(self, image_input: Union[str, Image.Image, np.ndarray]) -> Dict:
-        """
-        Predict disease from a single image. Returns a dictionary with standard fields.
-        If model not loaded, returns a demo/simulated response.
-        """
+        """Predict disease from a single image."""
         start_time = time.time()
         try:
             img = self.preprocess_image(image_input)
@@ -227,7 +192,6 @@ class CropDiseaseClassifier:
                 predicted_idx = int(np.argmax(preds))
                 confidence = float(preds[predicted_idx])
 
-                # top 3
                 top3 = np.argsort(preds)[-3:][::-1]
                 top3_predictions = []
                 for idx in top3:
@@ -240,7 +204,6 @@ class CropDiseaseClassifier:
                         "confidence_percentage": float(preds[cid]) * 100.0
                     })
             else:
-                # Demo mode: random selection from disease_classes
                 logger.info("Model not loaded, returning demo prediction")
                 max_key = max(self.disease_classes.keys()) if self.disease_classes else 0
                 predicted_idx = int(np.random.randint(0, max_key + 1))
@@ -266,6 +229,7 @@ class CropDiseaseClassifier:
                 "confidence_percentage": round(confidence * 100.0, 2),
                 "severity": severity,
                 "treatment": treatment,
+                "recommendation": treatment,  # Added for API compatibility
                 "top3_predictions": top3_predictions,
                 "prediction_time": round(prediction_time, 3),
                 "model_version": "real" if self.model is not None else "DEMO",
@@ -283,6 +247,7 @@ class CropDiseaseClassifier:
                 "confidence": 0.0,
                 "confidence_percentage": 0.0,
                 "treatment": "Unable to analyze image. Please try again with a clearer photo.",
+                "recommendation": "Unable to analyze image. Please try again with a clearer photo.",
                 "prediction_time": round(time.time() - start_time, 3)
             }
 
@@ -312,7 +277,6 @@ class CropDiseaseClassifier:
         for key, treatment in self.treatment_database.items():
             if key.lower() in disease_name.lower():
                 return treatment
-        # default generic advice
         return (
             "General Disease Management:\n"
             "1. Remove infected plant parts and destroy them.\n"
@@ -360,11 +324,8 @@ class CropDiseaseClassifier:
 
 
 if __name__ == "__main__":
-    # quick smoke tests (will run in demo mode if model/tf not available)
     classifier = CropDiseaseClassifier()
     print("Model info:", classifier.get_model_info())
-
-    # sample test: create a small blank image and run predict
     img = Image.new("RGB", classifier.image_size, (128, 128, 128))
     result = classifier.predict(img)
     print("Sample prediction:", result)

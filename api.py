@@ -1,386 +1,274 @@
 """
-FarmAI Backend API (Flask) - Stable production/dev-ready version
-
-Notes:
-- Uses Path objects from config where possible.
-- Safe initialization if model/chatbot or DB modules are missing.
-- Improved logging to a single log file (configured in config.py).
+FarmAI Backend API - Production Version
+Refactored with proper error handling, validation, and thread safety.
+This file serves as the main entry point for the Flask application.
 """
 
 import io
-import json
 import logging
-import random
 import time
 from pathlib import Path
-from typing import Optional
+import os
+import random # For demo predictions
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-from PIL import Image
 
-# ----- Config import (use fallback defaults if config missing) -----
-try:
-    from config import (
-        MODEL_PATH,
-        DATABASE_PATH,
-        IMAGE_SIZE,
-        GOOGLE_API_KEY,
-        CLASS_INDICES_PATH,
-        LOG_FILE,
-    )
-    # Ensure Path types
-    MODEL_PATH = Path(MODEL_PATH)
-    DATABASE_PATH = Path(DATABASE_PATH)
-    CLASS_INDICES_PATH = Path(CLASS_INDICES_PATH)
-    LOG_FILE = Path(LOG_FILE)
-except Exception as e:
-    # If config import fails, use conservative defaults
-    print("Config import failed:", e)
-    MODEL_PATH = Path("models/crop_disease_classifier_final.h5")
-    DATABASE_PATH = Path("farmer_analytics.db")
-    IMAGE_SIZE = (224, 224)
-    GOOGLE_API_KEY = None
-    CLASS_INDICES_PATH = Path("models/class_indices.json")
-    LOG_FILE = Path("logs/app.log")
+from app.core.config import settings
+from app.core.logging_config import setup_logging
+from app.ml.model_loader import model_loader
+from app.core.database import init_database, get_db_manager, get_disease_id_by_name
+from app.api.middleware.validation import validate_image_upload, validate_chat_request
+from app.api.middleware.rate_limit import rate_limit
+from app.api.middleware.auth import require_api_key # For securing monitoring endpoints
+from app.api.utils.sanitization import sanitize_string # For chat input sanitization
 
-# ----- Project module imports (safe) -----
-try:
-    from src.database_manager import FarmAIDatabaseManager
-except Exception as e:
-    FarmAIDatabaseManager = None
-    print("Warning: database_manager import failed:", e)
+# Import blueprints
+from app.api.routes.prediction import prediction_bp
+from app.api.routes.chat import chat_bp
+from app.api.routes.analytics import analytics_bp
+from app.api.routes.monitoring import monitoring_bp
 
-try:
-    from src.crop_classifier import CropDiseaseClassifier
-except Exception as e:
-    CropDiseaseClassifier = None
-    print("Warning: crop_classifier import failed:", e)
 
-try:
-    from src.chatbot_agent import FarmAIChatbot
-except Exception as e:
-    FarmAIChatbot = None
-    print("Warning: chatbot_agent import failed:", e)
+# Setup logging based on settings
+setup_logging(settings.LOG_FILE, settings.LOG_LEVEL)
+logger = logging.getLogger(__name__)
 
-try:
-    from src.analytics_engine import AnalyticsEngine
-except Exception as e:
-    AnalyticsEngine = None
-    print("Warning: analytics_engine import failed:", e)
-
-# ----- Logging setup -----
-LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-logging.basicConfig(
-    filename=str(LOG_FILE),
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
-)
-logger = logging.getLogger("farmai.api")
-
-# ----- Flask app -----
+# Initialize Flask app
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=settings.CORS_ORIGINS)
 
-# ----- Global singletons -----
-db_manager: Optional[object] = None
-classifier: Optional[object] = None
-chatbot: Optional[object] = None
-analytics_engine: Optional[object] = None
-CLASS_NAMES = None
+# Configuration for file uploads
+app.config['MAX_CONTENT_LENGTH'] = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+
+# Register blueprints
+app.register_blueprint(prediction_bp, url_prefix='/api')
+app.register_blueprint(chat_bp, url_prefix='/api')
+app.register_blueprint(analytics_bp, url_prefix='/api')
+app.register_blueprint(monitoring_bp, url_prefix='/api/monitoring')
 
 
-def load_global_resources():
-    """Initialize and load DB, classifier, chatbot and analytics engine."""
-    global db_manager, classifier, chatbot, analytics_engine, CLASS_NAMES
+# Global resources (initialized in initialize_resources)
+global_chatbot_instance = None
+global_analytics_engine_instance = None
+_init_lock = threading.Lock() # Thread-safe initialization lock
 
-    logger.info("Loading global resources...")
+def initialize_resources():
+    """Initialize all application resources (thread-safe)."""
+    global global_chatbot_instance, global_analytics_engine_instance
+    
+    with _init_lock:
+        # Check if already initialized in this process/worker
+        if global_chatbot_instance is not None and model_loader.is_loaded():
+            logger.info("Resources already initialized in this process.")
+            return
 
-    # Database Manager
-    if db_manager is None and FarmAIDatabaseManager is not None:
+        logger.info("Initializing application resources...")
+        
+        # Initialize database
         try:
-            db_manager = FarmAIDatabaseManager(str(DATABASE_PATH))
-            logger.info("Database manager initialized.")
+            init_database()
         except Exception as e:
             logger.exception("Database initialization failed: %s", e)
-            db_manager = None
-
-    # Class indices / class names
-        try:
-            if CLASS_NAMES is None:
-                CLASS_INDICES_PATH = Path(CLASS_INDICES_PATH)  # ensure Path
-                if CLASS_INDICES_PATH.exists():
-                    with open(CLASS_INDICES_PATH, "r") as f:
-                        class_indices = json.load(f)
-                        # Normalize mapping: allow either {"0": "name",...} or {"name": 0, ...}
-                        if all(str(k).isdigit() for k in class_indices.keys()):
-                            CLASS_NAMES = {int(k): v for k, v in class_indices.items()}
-                        else:
-                        # reverse mapping assumed: name -> index
-                            CLASS_NAMES = {int(v): k for k, v in class_indices.items()}
-                    logger.info("✅ Loaded class indices (%d classes) from %s", len(CLASS_NAMES), CLASS_INDICES_PATH)
-                else:
-                    logger.warning("⚠️ Class indices file not found: %s", CLASS_INDICES_PATH)
-                    CLASS_NAMES = {}
-        except Exception:
-            logger.exception("❌ Failed to load class indices, continuing with fallback.")
-            CLASS_NAMES = {}
-    
-    # Classifier
-
-    # --- Classifier init (robust) ---
-    if classifier is None and 'CropDiseaseClassifier' in globals():
-        try:
-            model_path_str = str(MODEL_PATH) if isinstance(MODEL_PATH, (Path,)) else MODEL_PATH
-            logger.info("Attempting to load classifier from: %s", model_path_str)
-
-            classifier = CropDiseaseClassifier(model_path_str)
-
-            # Try to get model info if available
-            if classifier and getattr(classifier, "model", None):
-                info = {}
-                try:
-                    info = classifier.get_model_info() if hasattr(classifier, "get_model_info") else {}
-                except Exception:
-                    logger.exception("Could not call get_model_info() on classifier")
-                logger.info("Classifier loaded successfully. model info: %s", info)
-            else:
-                logger.warning("Classifier initialized but model is NOT loaded (DEMO mode).")
-                logger.warning("Checked model path: %s", model_path_str)
-
-        except Exception as exc:
-            logger.exception("Failed to initialize classifier: %s", exc)
-            classifier = None
-    
-    
-    # Chatbot
-    if chatbot is None and FarmAIChatbot is not None:
-        try:
-            if GOOGLE_API_KEY:
-                chatbot = FarmAIChatbot(GOOGLE_API_KEY)
-                logger.info("Chatbot initialized.")
-            else:
-                logger.warning("GOOGLE_API_KEY not set; chatbot will be unavailable.")
-                chatbot = None
-        except Exception:
-            logger.exception("Failed to initialize chatbot.")
-            chatbot = None
-
-    # Analytics Engine
-    if analytics_engine is None and AnalyticsEngine is not None and db_manager is not None:
-        try:
-            analytics_engine = AnalyticsEngine(db_manager)
-            logger.info("Analytics engine initialized.")
-        except Exception:
-            logger.exception("Failed to initialize analytics engine.")
-            analytics_engine = None
-
-
-@app.before_request
-def ensure_resources_loaded():
-    """Make sure resources are loaded before handling requests."""
-    global db_manager
-    if db_manager is None:
-        load_global_resources()
-
-
-# ----- Helpers -----
-def get_farmer_id() -> str:
-    """Get farmer id from header or generate an anonymous one."""
-    header = request.headers.get("X-Farmer-ID")
-    if header:
-        return header
-    return f"anon_{int(time.time())}"
-
-
-def format_disease_name(disease_label: str) -> str:
-    """Human-friendly disease name."""
-    return disease_label.replace("___", ": ").replace("_", " ")
-
-
-# ----- Endpoints -----
-@app.route("/", methods=["GET"])
-def home():
-    return jsonify(
-        {
-            "status": "success",
-            "message": "FarmAI Backend API",
-            "version": "1.0.0",
-            "endpoints": {
-                "health": "/api/health",
-                "predict": "/api/predict (POST form-data 'file')",
-                "chat": "/api/chat (POST JSON {message})",
-                "analytics_summary": "/api/analytics/summary",
-            },
-        }
-    ), 200
-
-
-@app.route("/api/health", methods=["GET"])
-def health_check():
-    model_loaded = bool(classifier and getattr(classifier, "model", None))
-    chatbot_ready = bool(chatbot)
-    db_ready = bool(db_manager)
-    status = "healthy" if (model_loaded and db_ready) else "degraded"
-    return jsonify(
-        {
-            "status": status,
-            "model_loaded": model_loaded,
-            "chatbot_initialized": chatbot_ready,
-            "database_connected": db_ready,
-            "timestamp": time.time(),
-        }
-    ), 200
-
-
-@app.route("/api/predict", methods=["POST"])
-def predict_disease_api():
-    """
-    Accepts multipart/form-data with key 'file' (or legacy 'image').
-    Returns JSON with prediction or friendly error message.
-    """
-    file = request.files.get("file") or request.files.get("image")
-    if not file:
-        return jsonify({"status": "error", "message": "No image file provided. Send form-data with key 'file'."}), 400
-
-    if file.filename == "":
-        return jsonify({"status": "error", "message": "Uploaded file has no filename."}), 400
-
-    try:
-        raw = file.read()
-        img = Image.open(io.BytesIO(raw))
-        if img.mode != "RGB":
-            img = img.convert("RGB")
-
-        if classifier and getattr(classifier, "model", None):
-            logger.info("Running real model prediction.")
-            result = classifier.predict(img)
+            
+        # Load ML model
+        success = model_loader.load(settings.MODEL_PATH, settings.CLASS_INDICES_PATH)
+        if success:
+            logger.info("ML model loaded successfully.")
         else:
-            logger.info("Running demo prediction (model not loaded).")
-            demo_diseases = [
-                "Tomato: Early Blight",
-                "Potato: Late Blight",
-                "Apple: Apple Scab",
-                "Tomato: Healthy",
-                "Potato: Healthy",
-            ]
-            conf = round(random.uniform(0.70, 0.95), 4)
-            result = {
-                "disease": random.choice(demo_diseases),
-                "confidence": conf,
-                "confidence_percentage": round(conf * 100, 2),
-                "treatment": "Demo: model not available.",
-                "severity": random.choice(["High", "Medium", "Low"]),
-                "prediction_time": round(random.uniform(0.1, 0.5), 3),
-                "model_version": "DEMO",
-                "is_confident": True,
-            }
-
-        # Log prediction (best-effort)
+            logger.warning("ML model failed to load. Prediction service will run in demo mode.")
+        
+        # Initialize chatbot
+        if settings.GOOGLE_API_KEY:
+            try:
+                from app.services.chatbot import FarmAIChatbot
+                global_chatbot_instance = FarmAIChatbot(settings.GOOGLE_API_KEY, settings.CHATBOT_MODEL)
+                logger.info("Chatbot service initialized.")
+            except Exception as e:
+                logger.error("Chatbot initialization failed: %s", e)
+                global_chatbot_instance = None
+        else:
+            logger.warning("GOOGLE_API_KEY not set. Chatbot service will be unavailable.")
+        
+        # Initialize analytics
         try:
-            farmer_id = get_farmer_id()
+            from app.services.analytics import AnalyticsEngine
+            db_manager = get_db_manager() # Get manager from core.database
             if db_manager:
-                db_manager.add_farmer(farmer_id, name="Anonymous")
-                # Try to save prediction; use class id if available
-                predicted_id = result.get("class_id") or result.get("predicted_disease_id") or 1
-                db_manager.save_prediction(
-                    farmer_id=farmer_id,
-                    predicted_disease_id=int(predicted_id),
-                    confidence=float(result.get("confidence", 0)),
-                    model_version=result.get("model_version", "unknown"),
-                    prediction_time=float(result.get("prediction_time", 0)),
-                    image_file=file.filename,
-                )
-                logger.info("Prediction logged for farmer %s", farmer_id)
-        except Exception:
-            logger.exception("Failed to log prediction to database.")
-
-        return jsonify({"status": "success", **result}), 200
-
-    except Exception as e:
-        logger.exception("Prediction failed: %s", e)
-        return jsonify({"status": "error", "message": f"Prediction failed: {str(e)}"}), 500
+                global_analytics_engine_instance = AnalyticsEngine(db_manager)
+                logger.info("Analytics engine initialized.")
+            else:
+                logger.warning("Database manager not available, Analytics engine not initialized.")
+        except Exception as e:
+            logger.error("Analytics initialization failed: %s", e)
+            global_analytics_engine_instance = None
+        
+        logger.info("Application resource initialization complete.")
 
 
-@app.route("/api/chat", methods=["POST"])
-def chat_with_ai_api():
-    """
-    Accepts JSON: { "message": "...", "crop": "Tomato", "language": "English", "disease_context": "..." }
-    """
-    data = request.get_json(silent=True) or {}
-    farmer_query = data.get("message") or data.get("query")
-    crop_type = data.get("crop", "General")
-    disease_context = data.get("disease_context")
-    language = data.get("language", "English")
+# Helper functions (moved to global scope for easy access by routes)
+def get_farmer_id():
+    """Extract or generate farmer ID from request headers."""
+    # In a real app, this would come from user authentication (e.g., JWT token, session cookie)
+    return request.headers.get('X-Farmer-ID', f"anon_{int(time.time())}")
 
-    if not farmer_query:
-        return jsonify({"status": "error", "message": "No message provided."}), 400
+def get_treatment_recommendation(disease_name: str) -> str:
+    """Get treatment recommendation for disease."""
+    # This data can be moved to a DB table or a separate JSON/YAML file
+    treatment_db = {
+        "Apple: Apple Scab": (
+            "Apply fungicide (e.g., Captan, Mancozeb) every 7-10 days. "
+            "Remove fallen leaves and prune infected branches."
+        ),
+        "Apple: Black Rot": (
+            "Prune infected branches. Apply fungicide during wet seasons. Improve air circulation."
+        ),
+        "Apple: Cedar Apple Rust": (
+            "Remove nearby cedar trees if possible. Apply fungicide in spring (e.g., Myclobutanil)."
+        ),
+        "Corn (Maize): Common Rust": (
+            "Plant resistant varieties. Apply fungicide (e.g., Azoxystrobin) if severe. Ensure proper spacing."
+        ),
+        "Corn (Maize): Northern Leaf Blight": (
+            "Use resistant hybrids. Apply fungicide at first symptoms. Practice crop rotation."
+        ),
+        "Grape: Black Rot": (
+            "Remove mummified berries. Apply fungicide (e.g., Mancozeb, Captan) regularly."
+        ),
+        "Grape: Esca (Black Measles)": (
+            "No chemical cure available. Remove severely infected vines. Ensure proper nutrition and vineyard hygiene."
+        ),
+        "Potato: Early Blight": (
+            "Apply fungicide (e.g., Chlorothalonil, Mancozeb). Remove lower infected leaves. Mulch soil."
+        ),
+        "Potato: Late Blight": (
+            "Apply fungicide immediately (e.g., Metalaxyl, Mancozeb). Improve drainage. Destroy infected plants."
+        ),
+        "Tomato: Bacterial Spot": (
+            "Use copper-based bactericides. Avoid overhead watering. Remove and destroy infected plants."
+        ),
+        "Tomato: Early Blight": (
+            "Apply fungicide (e.g., Chlorothalonil). Remove infected leaves. Ensure proper spacing."
+        ),
+        "Tomato: Late Blight": (
+            "Apply fungicide urgently (e.g., Mancozeb, Metalaxyl). Destroy infected plants immediately."
+        ),
+        "Tomato: Leaf Mold": (
+            "Improve greenhouse ventilation. Reduce humidity. Apply fungicide (e.g., Chlorothalonil)."
+        ),
+        "Tomato: Septoria Leaf Spot": (
+            "Remove and destroy infected leaves. Apply fungicide. Avoid overhead irrigation. Practice crop rotation."
+        ),
+        "Tomato: Spider Mites Two-Spotted Spider Mite": (
+            "Use miticides or neem oil. Increase humidity. Introduce predatory mites."
+        ),
+        "Tomato: Target Spot": (
+            "Apply fungicide. Improve air circulation. Practice crop rotation."
+        ),
+        "Tomato: Tomato Yellow Leaf Curl Virus": (
+            "No chemical cure. Control whiteflies. Remove infected plants. Use resistant varieties."
+        ),
+        "Tomato: Tomato Mosaic Virus": (
+            "No cure. Remove infected plants. Disinfect tools. Plant resistant varieties."
+        ),
+        "Orange: Haunglongbing (Citrus Greening)": (
+            "No cure. Remove infected trees. Control Asian citrus psyllid. Use certified clean nursery stock."
+        ),
+        "Peach: Bacterial Spot": (
+            "Use copper sprays. Prune to improve air flow. Plant resistant varieties."
+        ),
+        "Pepper, Bell: Bacterial Spot": (
+            "Apply copper bactericide. Remove infected plants. Avoid overhead watering."
+        ),
+        "Squash: Powdery Mildew": (
+            "Apply fungicide (e.g., Sulfur, Potassium bicarbonate). Ensure good air circulation."
+        ),
+        "Strawberry: Leaf Scorch": (
+            "Remove infected leaves. Apply fungicide. Ensure proper plant spacing."
+        ),
+        "Cherry (Including Sour): Powdery Mildew": (
+            "Apply sulfur or fungicide. Prune for better air flow."
+        ),
+        # Default healthy treatments
+        "healthy": "Plant appears healthy! Continue regular watering, proper fertilization, and monitor for early disease signs.",
+    }
 
-    if not chatbot:
-        # fallback: return a helpful static response instead of failing
-        fallback = (
-            "Chat service currently unavailable. "
-            "You can still use the prediction endpoint for disease detection."
-        )
-        return jsonify({"status": "error", "message": fallback}), 503
+    formatted_disease_name = disease_name.replace('___', ': ').replace('_', ' ').title()
 
-    try:
-        response_text, response_time = chatbot.generate_response(
-            farmer_query=farmer_query,
-            crop_type=crop_type,
-            disease_name=disease_context,
-            language=language,
-        )
+    # Try to find specific treatment
+    for key, treatment in treatment_db.items():
+        if key.lower() == formatted_disease_name.lower():
+            return treatment
 
-        # log chatbot interaction (best-effort)
-        try:
-            farmer_id = get_farmer_id()
-            if db_manager:
-                db_manager.log_chatbot_interaction(
-                    farmer_id=farmer_id,
-                    query=farmer_query,
-                    response=response_text,
-                    language=language,
-                    response_time=response_time,
-                )
-        except Exception:
-            logger.exception("Failed to log chatbot interaction.")
+    # Fallback for generic healthy or unknown diseases
+    if "healthy" in formatted_disease_name.lower():
+        return treatment_db.get("healthy", "Plant appears healthy! Continue regular care.")
+    
+    return (
+        "General Disease Management:\n"
+        "1. Remove infected plant parts and destroy.\n"
+        "2. Improve air circulation.\n"
+        "3. Apply appropriate fungicide/bactericide.\n"
+        "4. Consult local agricultural extension.\n"
+        "5. Practice crop rotation."
+    )
 
-        return jsonify({"status": "success", "response": response_text, "responseTime": round(response_time, 2)}), 200
-    except Exception as e:
-        logger.exception("Chat endpoint failed: %s", e)
-        return jsonify({"status": "error", "message": f"Chat failed: {str(e)}"}), 500
+def determine_severity(confidence: float, disease_name: str) -> str:
+    """Determine disease severity level based on confidence and disease type."""
+    
+    if "healthy" in disease_name.lower():
+        return "Low"
 
+    high_severity_keywords = ["blight", "rot", "wilt", "virus", "mosaic", "scab"]
+    if any(keyword in disease_name.lower() for keyword in high_severity_keywords):
+        return "High" if confidence >= 0.80 else "Medium"
 
-@app.route("/api/analytics/summary", methods=["GET"])
-def get_analytics_summary_api():
-    if not analytics_engine:
-        return jsonify({"status": "error", "message": "Analytics engine not initialized."}), 503
-    try:
-        summary = analytics_engine.get_dashboard_metrics()
-        return jsonify({"status": "success", **summary}), 200
-    except Exception:
-        logger.exception("Failed to fetch analytics summary.")
-        return jsonify({"status": "error", "message": "Could not fetch analytics."}), 500
+    medium_keywords = ["spot", "mold", "rust"]
+    if any(keyword in disease_name.lower() for keyword in medium_keywords):
+        return "Medium"
+
+    return "Medium" if confidence >= 0.85 else "Low"
 
 
+# Error handlers (registered at global app level)
 @app.errorhandler(404)
 def not_found(error):
+    logger.warning("404 Not Found: %s", request.url)
     return jsonify({"status": "error", "message": "Endpoint not found"}), 404
 
+@app.errorhandler(405) # Method Not Allowed is also handled by Flask's routing
+def method_not_allowed(error):
+    logger.warning("405 Method Not Allowed: %s for %s", request.method, request.url)
+    return jsonify({"status": "error", "message": "Method not allowed"}), 405
 
 @app.errorhandler(500)
-def internal_error(error):
+def internal_server_error_handler(error):
     logger.exception("Internal server error: %s", error)
     return jsonify({"status": "error", "message": "Internal server error"}), 500
 
+@app.errorhandler(413) # Payload Too Large is handled by Flask's MAX_CONTENT_LENGTH
+def request_entity_too_large(error):
+    logger.warning("413 Request entity too large: %s", error)
+    return jsonify({"status": "error", "message": f"File too large. Maximum: {settings.MAX_UPLOAD_SIZE_MB}MB"}), 413
 
-# ----- Main -----
-if __name__ == "__main__":
-    logger.info("Starting FarmAI API server...")
-    load_global_resources()
-    # quick health print
-    logger.info("Model loaded: %s", bool(classifier and getattr(classifier, "model", None)))
-    logger.info("Chatbot ready: %s", bool(chatbot))
-    logger.info("Database ready: %s", bool(db_manager))
-    app.run(host="0.0.0.0", port=5050, debug=False)
+
+# Initialize resources when Flask app context is available (production-ready)
+# This will run once when the application starts, before any requests are processed.
+with app.app_context():
+    initialize_resources()
+
+
+# --- Main Entry Point ---
+if __name__ == '__main__':
+    logger.info("==================================================")
+    logger.info(" FarmAI Backend Service Starting...")
+    logger.info("==================================================")
+    
+    logger.info("API will be serving on host %s port %s", settings.API_HOST, settings.API_PORT)
+    
+    # Run Flask app (debug=False for production readiness)
+    app.run(
+        host=settings.API_HOST,
+        port=settings.API_PORT,
+        debug=settings.DEBUG # Should be False in production
+    )

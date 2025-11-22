@@ -9,10 +9,9 @@ import json
 from datetime import datetime
 from pathlib import Path
 import logging
+import shutil
 from typing import Optional, Dict, List
 
-
-# ----------------- Logging setup (ensure logs dir exists) -----------------
 LOGS_DIR = Path(__file__).resolve().parent.parent / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = LOGS_DIR / "app.log"
@@ -32,26 +31,24 @@ class FarmAIDatabaseManager:
     """
 
     def __init__(self, db_path: str = 'farmer_analytics.db'):
-        # store as Path for consistent behavior
         self.db_path = Path(db_path)
-        # ensure parent directory exists
         if not self.db_path.parent.exists():
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # initialize database (creates file and tables if not present)
         self.init_database()
         logger.info("Database manager initialized: %s", str(self.db_path))
 
     def _get_conn(self):
-        """Return a new sqlite connection (use context manager where possible)."""
-        return sqlite3.connect(str(self.db_path))
+        """Return a new sqlite connection."""
+        conn = sqlite3.connect(str(self.db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        return conn
 
     def init_database(self):
         """Initialize database with all 8 tables"""
         with self._get_conn() as conn:
             cursor = conn.cursor()
 
-            # TABLE 1: Farmers
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS farmers (
                     farmer_id TEXT PRIMARY KEY,
@@ -67,7 +64,6 @@ class FarmAIDatabaseManager:
                 )
             ''')
 
-            # TABLE 2: Crops
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS crops (
                     crop_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -80,7 +76,6 @@ class FarmAIDatabaseManager:
                 )
             ''')
 
-            # TABLE 3: Diseases
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS diseases (
                     disease_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -95,7 +90,6 @@ class FarmAIDatabaseManager:
                 )
             ''')
 
-            # TABLE 4: Farmer Queries
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS farmer_queries (
                     query_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -115,7 +109,6 @@ class FarmAIDatabaseManager:
                 )
             ''')
 
-            # TABLE 5: Disease Predictions
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS disease_predictions (
                     prediction_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -136,7 +129,6 @@ class FarmAIDatabaseManager:
                 )
             ''')
 
-            # TABLE 6: Treatment Recommendations
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS treatment_recommendations (
                     recommendation_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -153,7 +145,6 @@ class FarmAIDatabaseManager:
                 )
             ''')
 
-            # TABLE 7: Chatbot Logs
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS chatbot_logs (
                     log_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -170,7 +161,6 @@ class FarmAIDatabaseManager:
                 )
             ''')
 
-            # TABLE 8: Analytics Metrics
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS analytics_metrics (
                     metric_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -191,8 +181,6 @@ class FarmAIDatabaseManager:
             conn.commit()
         logger.info("All 8 tables created successfully")
 
-    # ==================== FARMERS TABLE OPERATIONS ====================
-
     def add_farmer(self, farmer_id: str, name: str, phone: str = None,
                    village: str = None, district: str = None, state: str = None,
                    crops: str = None, farm_size: float = None) -> bool:
@@ -209,7 +197,6 @@ class FarmAIDatabaseManager:
             logger.info("Farmer added: %s", farmer_id)
             return True
         except sqlite3.IntegrityError:
-            # Farmer already exists, update last_active
             try:
                 with self._get_conn() as conn:
                     cursor = conn.cursor()
@@ -250,8 +237,6 @@ class FarmAIDatabaseManager:
             logger.error("Error getting farmer %s: %s", farmer_id, str(e))
         return None
 
-    # ==================== DISEASES TABLE OPERATIONS ====================
-
     def add_disease(self, disease_name: str, affected_crops: str = None,
                     symptoms: str = None, causes: str = None,
                     treatment: str = None, prevention: str = None,
@@ -272,7 +257,6 @@ class FarmAIDatabaseManager:
             logger.info("Disease added: %s", disease_name)
             return disease_id
         except sqlite3.IntegrityError:
-            # Disease exists, get its ID
             try:
                 with self._get_conn() as conn:
                     cursor = conn.cursor()
@@ -309,8 +293,6 @@ class FarmAIDatabaseManager:
             logger.error("Error getting disease info %s: %s", disease_name, str(e))
         return None
 
-    # ==================== FARMER QUERIES TABLE OPERATIONS ====================
-
     def save_query(self, farmer_id: str, query_text: str, response_text: str,
                    response_time: float, confidence: float = 0.85,
                    crop_id: int = None, disease_id: int = None,
@@ -332,8 +314,6 @@ class FarmAIDatabaseManager:
         except Exception as e:
             logger.error("Error saving query: %s", str(e))
             return False
-
-    # ==================== DISEASE PREDICTIONS TABLE OPERATIONS ====================
 
     def save_prediction(self, farmer_id: str, predicted_disease_id: Optional[int],
                        confidence: float, model_version: str,
@@ -360,8 +340,6 @@ class FarmAIDatabaseManager:
             logger.error("Error saving prediction: %s", str(e))
             return False
 
-    # ==================== CHATBOT LOGS TABLE OPERATIONS ====================
-
     def log_chatbot_interaction(self, farmer_id: str, query: str, response: str,
                                 language: str, response_time: float,
                                 model_used: str = 'gemini-pro',
@@ -384,31 +362,24 @@ class FarmAIDatabaseManager:
             logger.error("Error logging chatbot: %s", str(e))
             return False
 
-    # ==================== ANALYTICS OPERATIONS ====================
-
     def get_analytics_summary(self) -> Dict:
         """Get comprehensive analytics summary"""
         try:
             with self._get_conn() as conn:
                 cursor = conn.cursor()
 
-                # Total queries
                 cursor.execute('SELECT COUNT(*) FROM farmer_queries')
                 total_queries = cursor.fetchone()[0]
 
-                # Total farmers
                 cursor.execute('SELECT COUNT(*) FROM farmers')
                 total_farmers = cursor.fetchone()[0]
 
-                # Average response time
                 cursor.execute('SELECT AVG(response_time_seconds) FROM farmer_queries WHERE response_time_seconds IS NOT NULL')
                 avg_response_time = cursor.fetchone()[0] or 0
 
-                # Total predictions
                 cursor.execute('SELECT COUNT(*) FROM disease_predictions')
                 total_predictions = cursor.fetchone()[0]
 
-                # Model accuracy
                 cursor.execute('''
                     SELECT COUNT(*) FROM disease_predictions 
                     WHERE is_correct = 1 AND is_correct IS NOT NULL
@@ -417,7 +388,6 @@ class FarmAIDatabaseManager:
 
                 accuracy = (correct_predictions / total_predictions * 100) if total_predictions > 0 else 0
 
-                # Top disease
                 cursor.execute('''
                     SELECT d.disease_name, COUNT(*) as count 
                     FROM disease_predictions dp
@@ -430,7 +400,6 @@ class FarmAIDatabaseManager:
                 top_disease_result = cursor.fetchone()
                 top_disease = top_disease_result[0] if top_disease_result else 'N/A'
 
-                # Average confidence
                 cursor.execute('SELECT AVG(confidence_score) FROM disease_predictions')
                 avg_confidence = cursor.fetchone()[0] or 0
 
@@ -457,91 +426,106 @@ class FarmAIDatabaseManager:
 
     def get_time_series_data(self, days: int = 30) -> pd.DataFrame:
         """Get time series data for trends"""
-        with self._get_conn() as conn:
-            query = '''
-                SELECT 
-                    DATE(timestamp) as date, 
-                    COUNT(*) as queries,
-                    AVG(response_time_seconds) as avg_time,
-                    AVG(confidence_score) as avg_confidence
-                FROM farmer_queries
-                WHERE timestamp >= datetime('now', '-' || ? || ' days')
-                GROUP BY DATE(timestamp)
-                ORDER BY date
-            '''
-            df = pd.read_sql_query(query, conn, params=(days,))
-        return df
+        try:
+            with self._get_conn() as conn:
+                query = '''
+                    SELECT 
+                        DATE(timestamp) as date, 
+                        COUNT(*) as queries,
+                        AVG(response_time_seconds) as avg_time,
+                        AVG(confidence_score) as avg_confidence
+                    FROM farmer_queries
+                    WHERE timestamp >= datetime('now', '-' || ? || ' days')
+                    GROUP BY DATE(timestamp)
+                    ORDER BY date
+                '''
+                df = pd.read_sql_query(query, conn, params=(days,))
+            return df
+        except Exception as e:
+            logger.error("Error getting time series data: %s", str(e))
+            return pd.DataFrame()
 
     def get_disease_distribution(self, limit: int = 10) -> pd.DataFrame:
         """Get disease distribution for analytics"""
-        with self._get_conn() as conn:
-            query = '''
-                SELECT 
-                    d.disease_name,
-                    COUNT(*) as count,
-                    AVG(dp.confidence_score) as avg_confidence,
-                    d.severity_level
-                FROM disease_predictions dp
-                LEFT JOIN diseases d ON dp.predicted_disease_id = d.disease_id
-                WHERE d.disease_name IS NOT NULL
-                GROUP BY d.disease_name
-                ORDER BY count DESC
-                LIMIT ?
-            '''
-            df = pd.read_sql_query(query, conn, params=(limit,))
-        return df
+        try:
+            with self._get_conn() as conn:
+                query = '''
+                    SELECT 
+                        d.disease_name,
+                        COUNT(*) as count,
+                        AVG(dp.confidence_score) as avg_confidence,
+                        d.severity_level
+                    FROM disease_predictions dp
+                    LEFT JOIN diseases d ON dp.predicted_disease_id = d.disease_id
+                    WHERE d.disease_name IS NOT NULL
+                    GROUP BY d.disease_name
+                    ORDER BY count DESC
+                    LIMIT ?
+                '''
+                df = pd.read_sql_query(query, conn, params=(limit,))
+            return df
+        except Exception as e:
+            logger.error("Error getting disease distribution: %s", str(e))
+            return pd.DataFrame()
 
     def get_farmer_history(self, farmer_id: str, limit: int = 50) -> pd.DataFrame:
         """Get complete history for a farmer"""
-        with self._get_conn() as conn:
-            query = '''
-                SELECT 
-                    query_id, query_text, response_text, 
-                    query_language, response_time_seconds,
-                    confidence_score, timestamp
-                FROM farmer_queries
-                WHERE farmer_id = ?
-                ORDER BY timestamp DESC
-                LIMIT ?
-            '''
-            df = pd.read_sql_query(query, conn, params=(farmer_id, limit))
-        return df
+        try:
+            with self._get_conn() as conn:
+                query = '''
+                    SELECT 
+                        query_id, query_text, response_text, 
+                        query_language, response_time_seconds,
+                        confidence_score, timestamp
+                    FROM farmer_queries
+                    WHERE farmer_id = ?
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                '''
+                df = pd.read_sql_query(query, conn, params=(farmer_id, limit))
+            return df
+        except Exception as e:
+            logger.error("Error getting farmer history: %s", str(e))
+            return pd.DataFrame()
 
     def export_analytics_data(self, filepath: str = 'dashboards/dashboard_data.csv') -> str:
         """Export complete analytics data for Power BI/Tableau"""
-        with self._get_conn() as conn:
-            query = '''
-                SELECT 
-                    fq.query_id, fq.farmer_id, fq.query_text, fq.response_text,
-                    fq.query_language, fq.response_time_seconds, fq.confidence_score,
-                    fq.timestamp, d.disease_name, d.severity_level,
-                    c.crop_name, f.village, f.district, f.state
-                FROM farmer_queries fq
-                LEFT JOIN diseases d ON fq.disease_id = d.disease_id
-                LEFT JOIN crops c ON fq.crop_id = c.crop_id
-                LEFT JOIN farmers f ON fq.farmer_id = f.farmer_id
-                ORDER BY fq.timestamp DESC
-            '''
-            df = pd.read_sql_query(query, conn)
+        try:
+            with self._get_conn() as conn:
+                query = '''
+                    SELECT 
+                        fq.query_id, fq.farmer_id, fq.query_text, fq.response_text,
+                        fq.query_language, fq.response_time_seconds, fq.confidence_score,
+                        fq.timestamp, d.disease_name, d.severity_level,
+                        c.crop_name, f.village, f.district, f.state
+                    FROM farmer_queries fq
+                    LEFT JOIN diseases d ON fq.disease_id = d.disease_id
+                    LEFT JOIN crops c ON fq.crop_id = c.crop_id
+                    LEFT JOIN farmers f ON fq.farmer_id = f.farmer_id
+                    ORDER BY fq.timestamp DESC
+                '''
+                df = pd.read_sql_query(query, conn)
 
-        Path(filepath).parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(filepath, index=False)
-        logger.info("Analytics data exported to %s", filepath)
-        return filepath
+            Path(filepath).parent.mkdir(parents=True, exist_ok=True)
+            df.to_csv(filepath, index=False)
+            logger.info("Analytics data exported to %s", filepath)
+            return filepath
+        except Exception as e:
+            logger.error("Export failed: %s", str(e))
+            return ""
 
     def backup_database(self, backup_path: Optional[str] = None) -> bool:
-        """Create database backup"""
+        """Create database backup - FIXED"""
         if backup_path is None:
             backup_path = f"{self.db_path}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
         try:
-            import shutil
-            shutil.copy2(str(self.db_path), str(backup_path))
-            logger.info("Database backed up to %s", str(backup_path))
+            backup_path_obj = Path(backup_path)
+            backup_path_obj.parent.mkdir(parents=True, exist_ok=True)
+            
+            shutil.copy2(str(self.db_path), str(backup_path_obj))
+            logger.info("Database backed up to %s", str(backup_path_obj))
             return True
         except Exception as e:
             logger.error("Backup failed: %s", str(e))
             return False
-
-
-
