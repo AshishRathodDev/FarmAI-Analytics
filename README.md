@@ -56,8 +56,12 @@
 
 ## 🎯 Live Demo
 
+<<<<<<< HEAD
 🌐 **Frontend**: [http://localhost:5173](http://localhost:5173)  
 🔧 **Backend API**: [http://localhost:5050](http://localhost:5050)
+=======
+🌐 **FarmAI Production Demo:** [https://farm-ai-ten.vercel.app/](https://farm-ai-ten.vercel.app/)
+>>>>>>> 5212706977435d4bb40a86ed872cf977d3ae1675
 
 ### Quick Demo Credentials
 ```
@@ -708,5 +712,3 @@ This software is provided for educational and research purposes. While we strive
 [⬆ Back to Top](#-farmai-analytics---ai-powered-crop-disease-detection-platform)
 
 </div>
-```
-
