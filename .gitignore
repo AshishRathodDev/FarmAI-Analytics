@@ -27,3 +27,12 @@ dashboards/
 # Env
 .env
 farmai-react-ui/.env
+
+# Large model files (>100MB)
+models/*.pkl
+models/*.h5
+*.pkl
+*.h5
+
+# Keep folder structure
+!models/.gitkeep
