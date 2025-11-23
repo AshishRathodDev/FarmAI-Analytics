@@ -50,34 +50,34 @@ def download_from_huggingface():
         
         # Download model if not exists
         if not os.path.exists(MODEL_PATH):
-            logger.info(f"📥 Downloading {MODEL_FILENAME} from Hugging Face...")
+            logger.info(f" Downloading {MODEL_FILENAME} from Hugging Face...")
             hf_hub_download(
                 repo_id=repo_id,
                 filename=MODEL_FILENAME,
                 local_dir="models",
                 local_dir_use_symlinks=False
             )
-            logger.info(f"✅ Model downloaded successfully!")
+            logger.info(f" Model downloaded successfully!")
         else:
-            logger.info(f"✅ Model already exists locally")
+            logger.info(f" Model already exists locally")
         
         # Download class indices if not exists
         if not os.path.exists(CLASS_INDICES_PATH):
-            logger.info(f"📥 Downloading {CLASS_INDICES_FILENAME} from Hugging Face...")
+            logger.info(f" Downloading {CLASS_INDICES_FILENAME} from Hugging Face...")
             hf_hub_download(
                 repo_id=repo_id,
                 filename=CLASS_INDICES_FILENAME,
                 local_dir="models",
                 local_dir_use_symlinks=False
             )
-            logger.info(f"✅ Class indices downloaded successfully!")
+            logger.info(f" Class indices downloaded successfully!")
         else:
-            logger.info(f"✅ Class indices already exist locally")
+            logger.info(f" Class indices already exist locally")
         
         return True
     
     except Exception as e:
-        logger.error(f"❌ Error downloading from Hugging Face: {e}")
+        logger.error(f" Error downloading from Hugging Face: {e}")
         return False
 
 def load_model():
@@ -93,18 +93,18 @@ def load_model():
         # Load model
         logger.info(f"Loading model from {MODEL_PATH}...")
         model = tf.keras.models.load_model(MODEL_PATH)
-        logger.info("✅ Model loaded successfully!")
+        logger.info(" Model loaded successfully!")
         
         # Load class names
         with open(CLASS_INDICES_PATH, 'r') as f:
             class_indices = json.load(f)
         class_names = list(class_indices.keys())
-        logger.info(f"✅ Loaded {len(class_names)} disease classes")
+        logger.info(f" Loaded {len(class_names)} disease classes")
         
         return True
     
     except Exception as e:
-        logger.error(f"❌ Error loading model: {e}")
+        logger.error(f" Error loading model: {e}")
         return False
 
 def allowed_file(filename):
@@ -245,12 +245,12 @@ with app.app_context():
     
     model_loaded = load_model()
     if not model_loaded:
-        logger.warning("⚠️  Model not loaded!")
+        logger.warning("️  Model not loaded!")
     else:
-        logger.info("✅ All resources initialized!")
+        logger.info(" All resources initialized!")
         logger.info("="*60)
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5050))
-    logger.info(f"🚀 Starting server on http://0.0.0.0:{port}")
+    logger.info(f" Starting server on http://0.0.0.0:{port}")
     app.run(host='0.0.0.0', port=port, debug=False)
