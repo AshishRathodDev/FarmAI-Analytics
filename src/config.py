@@ -50,7 +50,7 @@ BATCH_SIZE = 4  #  REDUCED from 8 to prevent memory overflow
 RANDOM_SEED = 42
 
 # Phase 1: Training with frozen base - MINIMAL EPOCHS
-PHASE1_EPOCHS = 2  #  Keep minimal for testing
+PHASE1_EPOCHS = 1  #  Keep minimal for testing
 PHASE1_LEARNING_RATE = 0.001
 
 # Phase 2: Fine-tuning - DISABLED for initial training

@@ -12,8 +12,8 @@ logs/
 *.log
 
 # Data & models
-models/*.h5
-models/*.pkl
+
+
 data/
 dashboards/
 *.sqlite

@@ -1,86 +1,59 @@
-const API_BASE = "http://localhost:5050/api";
 
-// POST image to Flask predict API
-export const predictDisease = async (imageFile) => {
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5050/api';
+
+export async function predictDisease(imageFile) {
   try {
     const formData = new FormData();
-    formData.append('file', imageFile);  // ✅ CORRECT - matches Flask
+    formData.append('file', imageFile);
 
-    const response = await fetch(`${API_BASE}/predict`, {
-      method: "POST",
+    const response = await fetch(`${API_BASE_URL}/predict`, {
+      method: 'POST',
       body: formData,
-      // Don't set Content-Type header - browser will set it automatically with boundary
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
     const data = await response.json();
-    
-    if (data.status === 'error') {
-      throw new Error(data.message || 'Prediction failed');
-    }
-    
-    return data;
 
+    if (data.status === 'success') {
+      return {
+        status: 'success',
+        disease: data.prediction,
+        confidence_percentage: Math.round(data.confidence * 100),
+        recommendation: data.recommendation || data.treatment || 'No treatment data available',
+        top_3: data.top_3 || []
+      };
+    } else {
+      return {
+        status: 'error',
+        message: data.message || 'Prediction failed'
+      };
+    }
   } catch (error) {
-    console.error("Error calling predict API:", error);
-    return { 
-      status: "error", 
-      message: error.message || "Failed to connect to API" 
+    console.error('API Error:', error);
+    return {
+      status: 'error',
+      message: 'Failed to connect to server. Ensure Flask API is running.'
     };
   }
-};
+}
 
-// POST message to Flask chat API
-export const chatWithAI = async (message, crop = "General", language = "English") => {
+export async function chatWithAI(message) {
   try {
-    const response = await fetch(`${API_BASE}/chat`, {
-      method: "POST",
-      headers: { 
-        'Content-Type': 'application/json' 
-      },
-      body: JSON.stringify({ 
-        message,      // ✅ CORRECT - matches Flask
-        crop,
-        language
-      }),
+    const response = await fetch(`${API_BASE_URL}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message })
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
     const data = await response.json();
     
-    if (data.status === 'error') {
-      throw new Error(data.message || 'Chat failed');
+    if (data.success) {
+      return data.response;
+    } else {
+      return 'Sorry, I encountered an error. Please try again.';
     }
-    
-    return data.response || "Sorry, could not get response.";
-    
   } catch (error) {
-    console.error("Error calling chat API:", error);
-    return "Failed to connect to AI Chat API: " + error.message;
+    console.error('Chat API Error:', error);
+    return 'Unable to connect to AI assistant. Please check your connection.';
   }
-};
-
-// Get analytics summary
-export const getAnalyticsSummary = async () => {
-  try {
-    const response = await fetch(`${API_BASE}/analytics/summary`);
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.error("Error fetching analytics:", error);
-    return { status: "error", message: error.message };
-  }
-};
-
-// Export all functions
-export default {
-  predictDisease,
-  chatWithAI,
-  getAnalyticsSummary
-};
+}

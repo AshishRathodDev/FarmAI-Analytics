@@ -11,7 +11,11 @@ import matplotlib.pyplot as plt
 import json
 import numpy as np
 
-from . import config
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from src import config
 from .model import build_transfer_learning_model
 
 tf.random.set_seed(config.RANDOM_SEED)
