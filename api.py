@@ -17,6 +17,10 @@ import tensorflow as tf
 import numpy as np
 from PIL import Image
 
+
+model = None
+class_names = []
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -29,11 +33,11 @@ app = Flask(__name__)
 CORS(app)
 
 
-model = tf.keras.models.load_model('models/crop_disease_classifier_final.h5')
+
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
-MODEL_PATH = '/Users/ashishrathore/FarmAI-Assistant/models/crop_disease_classifier_final.h5'
+MODEL_PATH = 'models/crop_disease_classifier_final.h5'
 CLASS_INDICES_PATH = 'models/class_indices.json'
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
