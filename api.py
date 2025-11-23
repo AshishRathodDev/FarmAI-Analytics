@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
+
+model = tf.keras.models.load_model('models/crop_disease_classifier_final.h5')
+
 # Configuration
 UPLOAD_FOLDER = 'uploads'
 MODEL_PATH = '/Users/ashishrathore/FarmAI-Assistant/models/crop_disease_classifier_final.h5'
