@@ -36,3 +36,31 @@ models/*.h5
 
 # Keep folder structure
 !models/.gitkeep
+
+
+# Virtual Environment
+venv/
+env/
+*.pyc
+__pycache__/
+
+# Uploads (temporary files)
+uploads/
+
+# Local models (will download from HF)
+models/*.keras
+models/*.h5
+
+# Environment variables
+.env
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
