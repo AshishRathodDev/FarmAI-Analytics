@@ -9,7 +9,8 @@ from pathlib import Path
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
-import tensorflow as tf
+import keras
+
 import numpy as np
 from PIL import Image
 from huggingface_hub import hf_hub_download
@@ -92,7 +93,7 @@ def load_model():
         
         # Load model
         logger.info(f"Loading model from {MODEL_PATH}...")
-        model = tf.keras.models.load_model(MODEL_PATH)
+        model = keras.models.load_model(MODEL_PATH)
         logger.info(" Model loaded successfully!")
         
         # Load class names
