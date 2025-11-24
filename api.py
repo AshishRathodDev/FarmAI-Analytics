@@ -11,13 +11,13 @@ import logging
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
-import tensorflow as tf
+import keras
 import numpy as np
 from PIL import Image
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
-MODEL_PATH = 'models/crop_disease_classifier_final.h5'
+MODEL_PATH = 'crop_disease_classifier_final.keras'
 CLASS_INDICES_PATH = 'models/class_indices.json'
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
@@ -50,7 +50,7 @@ def load_model():
             return False
 
         logger.info(f"Loading model from {MODEL_PATH}...")
-        model = tf.keras.models.load_model(MODEL_PATH)
+        model = keras.models.load_model(MODEL_PATH)
         logger.info("✅ Model loaded successfully!")
 
         # Load class names
