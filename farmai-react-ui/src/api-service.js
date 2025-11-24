@@ -1,5 +1,5 @@
-// FarmAI API Service
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://farmai-analytics.onrender.com';
+// Hardcode API URL (temporary fix)
+const API_BASE_URL = 'https://farmai-analytics.onrender.com';
 
 console.log('🔧 API Base URL:', API_BASE_URL);
 
@@ -26,7 +26,7 @@ export async function predictDisease(imageFile) {
         status: 'success',
         disease: data.prediction,
         confidence_percentage: Math.round(data.confidence * 100),
-        recommendation: data.recommendation || 'No treatment data',
+        recommendation: data.recommendation || 'Apply recommended fungicide treatment',
         top_3: data.top_3 || []
       };
     } else {
