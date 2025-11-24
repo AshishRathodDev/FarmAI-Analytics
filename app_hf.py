@@ -34,13 +34,15 @@ logger = logging.getLogger(__name__)
 # Flask App Configuration
 # ============================================================================
 app = Flask(__name__)
-CORS(app, resources={
-    r"/api/*": {
-        "origins": ["*"],
-        "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type"]
-    }
-})
+
+CORS(app, 
+     resources={r"/*": {"origins": "*"}},
+     allow_headers=["Content-Type", "Authorization"],
+     methods=["GET", "POST", "OPTIONS"],
+     supports_credentials=True
+)
+
+
 
 # ============================================================================
 # Configuration Constants
