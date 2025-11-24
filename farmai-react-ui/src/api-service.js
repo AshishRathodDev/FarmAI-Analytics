@@ -1,16 +1,23 @@
+// FarmAI API Service
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://farmai-analytics.onrender.com';
 
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5050/api';
+console.log('🔧 API Base URL:', API_BASE_URL);
 
 export async function predictDisease(imageFile) {
   try {
     const formData = new FormData();
     formData.append('file', imageFile);
 
-    const response = await fetch(`${API_BASE_URL}/predict`, {
+    console.log('📤 Sending to:', `${API_BASE_URL}/api/predict`);
+
+    const response = await fetch(`${API_BASE_URL}/api/predict`, {
       method: 'POST',
       body: formData,
     });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
 
     const data = await response.json();
 
@@ -19,7 +26,7 @@ export async function predictDisease(imageFile) {
         status: 'success',
         disease: data.prediction,
         confidence_percentage: Math.round(data.confidence * 100),
-        recommendation: data.recommendation || data.treatment || 'No treatment data available',
+        recommendation: data.recommendation || 'No treatment data',
         top_3: data.top_3 || []
       };
     } else {
@@ -29,31 +36,25 @@ export async function predictDisease(imageFile) {
       };
     }
   } catch (error) {
-    console.error('API Error:', error);
+    console.error('❌ API Error:', error);
     return {
       status: 'error',
-      message: 'Failed to connect to server. Ensure Flask API is running.'
+      message: `Failed: ${error.message}`
     };
   }
 }
 
 export async function chatWithAI(message) {
   try {
-    const response = await fetch(`${API_BASE_URL}/chat`, {
+    const response = await fetch(`${API_BASE_URL}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message })
     });
-
     const data = await response.json();
-    
-    if (data.success) {
-      return data.response;
-    } else {
-      return 'Sorry, I encountered an error. Please try again.';
-    }
+    return data.success ? data.response : 'Error';
   } catch (error) {
-    console.error('Chat API Error:', error);
-    return 'Unable to connect to AI assistant. Please check your connection.';
+    console.error('Chat error:', error);
+    return 'Unable to connect';
   }
 }
