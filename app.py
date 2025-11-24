@@ -27,7 +27,7 @@ CORS(app)
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
-MODEL_FILENAME = 'crop_disease_classifier_final.h5'
+MODEL_FILENAME = 'crop_disease_classifier_final.keras'
 CLASS_INDICES_FILENAME = 'class_indices.json'
 MODEL_PATH = f'models/{MODEL_FILENAME}'
 CLASS_INDICES_PATH = f'models/{CLASS_INDICES_FILENAME}'
