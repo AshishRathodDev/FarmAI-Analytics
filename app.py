@@ -1,6 +1,7 @@
 """
-FarmAI Flask API - Render+Vercel Production Ready (Full CORS & Memory Optimized)
+FarmAI Flask API - Google Cloud Run + Vercel Production Ready (Full CORS & Memory Optimized)
 """
+
 import os
 import sys
 import json
@@ -26,27 +27,12 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# CORS config to allow requests from Vercel prod site
-CORS(app,
-     resources={r"/*": {"origins": [
-         "https://farm-ai-ten.vercel.app",
-         "https://vercel.com",
-         "*",  # Debug mode, remove in production for extra safety
-     ]}}
-)
+# CORS: Allow all origins (for public, safe for ML API)
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 @app.after_request
-def after_request(response):
-    # Always add CORS headers to response
-    allowed = [
-        "https://farm-ai-ten.vercel.app",
-        "https://vercel.com"
-    ]
-    origin = request.headers.get('Origin')
-    if origin in allowed:
-        response.headers.add('Access-Control-Allow-Origin', origin)
-    else:
-        response.headers.add('Access-Control-Allow-Origin', '*')
+def add_cors_headers(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Accept,Authorization')
     response.headers.add('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
     response.headers.add('Access-Control-Max-Age', '3600')
