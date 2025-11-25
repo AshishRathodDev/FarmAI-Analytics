@@ -9,7 +9,7 @@
 // Configuration - VERIFIED WORKING
 // ============================================================================
 
-const API_BASE_URL = 'https://farmai-analytics.onrender.com';
+const API_BASE_URL = 'https://farmai-backend-r3dmwpw6yq-el.a.run.app';
 
 // Enable detailed logging
 const DEBUG = true;
