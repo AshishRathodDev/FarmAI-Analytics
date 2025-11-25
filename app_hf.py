@@ -11,6 +11,8 @@ from pathlib import Path
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
+from flask_cors import CORS
+
 
 # ============================================================================
 # CRITICAL: Import Keras before TensorFlow to use Keras 3
@@ -35,12 +37,13 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 app = Flask(__name__)
 
+
 CORS(app, 
-     resources={r"/*": {"origins": "*"}},
-     allow_headers=["Content-Type", "Authorization"],
+     origins="*",
+     allow_headers="*",
      methods=["GET", "POST", "OPTIONS"],
-     supports_credentials=True
-)
+     expose_headers="*",
+     supports_credentials=False)
 
 
 
