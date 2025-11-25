@@ -34,13 +34,28 @@ logger = logging.getLogger(__name__)
 # Flask App Configuration
 # ============================================================================
 app = Flask(__name__)
+
+#  FIXED: Complete CORS Configuration (removed duplicate import)
 CORS(app, resources={
-    r"/api/*": {
-        "origins": ["*"],
+    r"/*": {
+        "origins": "*",
         "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type"]
+        "allow_headers": ["Content-Type", "Accept"],
+        "expose_headers": ["Content-Type"],
+        "supports_credentials": False,
+        "max_age": 3600
     }
 })
+
+#  NEW: Handle preflight OPTIONS requests globally
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        response = jsonify({'status': 'ok'})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Accept')
+        response.headers.add('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+        return response, 200
 
 # ============================================================================
 # Configuration Constants
@@ -78,41 +93,41 @@ def download_from_huggingface():
     """Download model and class indices from Hugging Face"""
     try:
         logger.info("="*60)
-        logger.info("🤗 Checking Hugging Face Models...")
+        logger.info(" Checking Hugging Face Models...")
         logger.info(f"Repository: {HUGGINGFACE_REPO}")
         logger.info("="*60)
         
         # Download model if not exists
         if not os.path.exists(MODEL_PATH):
-            logger.info(f"📥 Downloading {MODEL_FILENAME}...")
+            logger.info(f" Downloading {MODEL_FILENAME}...")
             hf_hub_download(
                 repo_id=HUGGINGFACE_REPO,
                 filename=MODEL_FILENAME,
                 local_dir=MODEL_DIR,
                 local_dir_use_symlinks=False
             )
-            logger.info(f"✅ Model downloaded successfully!")
+            logger.info(f" Model downloaded successfully!")
         else:
             size_mb = os.path.getsize(MODEL_PATH) / (1024 * 1024)
-            logger.info(f"✅ Model already exists ({size_mb:.1f} MB)")
+            logger.info(f" Model already exists ({size_mb:.1f} MB)")
         
         # Download class indices if not exists
         if not os.path.exists(CLASS_INDICES_PATH):
-            logger.info(f"📥 Downloading {CLASS_INDICES_FILENAME}...")
+            logger.info(f" Downloading {CLASS_INDICES_FILENAME}...")
             hf_hub_download(
                 repo_id=HUGGINGFACE_REPO,
                 filename=CLASS_INDICES_FILENAME,
                 local_dir=MODEL_DIR,
                 local_dir_use_symlinks=False
             )
-            logger.info(f"✅ Class indices downloaded successfully!")
+            logger.info(f" Class indices downloaded successfully!")
         else:
-            logger.info(f"✅ Class indices already exist")
+            logger.info(f" Class indices already exist")
         
         return True
     
     except Exception as e:
-        logger.error(f"❌ Error downloading from Hugging Face: {e}")
+        logger.error(f" Error downloading from Hugging Face: {e}")
         logger.error(f"Please check:")
         logger.error(f"  1. Repository exists: {HUGGINGFACE_REPO}")
         logger.error(f"  2. Files exist in repo: {MODEL_FILENAME}, {CLASS_INDICES_FILENAME}")
@@ -125,29 +140,29 @@ def load_model_and_classes():
     
     try:
         logger.info("="*60)
-        logger.info("🚀 Initializing FarmAI Model...")
+        logger.info(" Initializing FarmAI Model...")
         logger.info("="*60)
         
         # Download from Hugging Face if needed
         if not download_from_huggingface():
-            logger.error("❌ Failed to download models from Hugging Face")
+            logger.error(" Failed to download models from Hugging Face")
             return False
         
         # Load class names first
-        logger.info(f"📖 Loading class indices from {CLASS_INDICES_PATH}...")
+        logger.info(f" Loading class indices from {CLASS_INDICES_PATH}...")
         with open(CLASS_INDICES_PATH, 'r') as f:
             class_indices = json.load(f)
         class_names = list(class_indices.keys())
-        logger.info(f"✅ Loaded {len(class_names)} disease classes")
+        logger.info(f" Loaded {len(class_names)} disease classes")
         
         # Load model
-        logger.info(f"🤖 Loading Keras model from {MODEL_PATH}...")
+        logger.info(f" Loading Keras model from {MODEL_PATH}...")
         logger.info(f"Using Keras version: {keras.__version__}")
         
         model = keras.models.load_model(MODEL_PATH)
         model_loaded = True
         
-        logger.info("✅ Model loaded successfully!")
+        logger.info(" Model loaded successfully!")
         logger.info(f"Model input shape: {model.input_shape}")
         logger.info(f"Model output shape: {model.output_shape}")
         logger.info("="*60)
@@ -155,7 +170,7 @@ def load_model_and_classes():
         return True
     
     except Exception as e:
-        logger.error(f"❌ Error loading model: {e}")
+        logger.error(f" Error loading model: {e}")
         logger.exception("Full traceback:")
         model_loaded = False
         return False
@@ -187,7 +202,7 @@ def preprocess_image(img_path):
         return img_array
     
     except Exception as e:
-        logger.error(f"❌ Error preprocessing image: {e}")
+        logger.error(f" Error preprocessing image: {e}")
         raise
 
 def format_disease_name(disease_name):
@@ -205,7 +220,7 @@ def format_disease_name(disease_name):
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
-    return jsonify({
+    response = jsonify({
         'status': 'healthy' if model_loaded else 'starting',
         'message': 'FarmAI API is running!',
         'model_loaded': model_loaded,
@@ -218,6 +233,8 @@ def health_check():
             'classes': '/api/classes'
         }
     })
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    return response
 
 @app.route('/api/predict', methods=['POST', 'OPTIONS'])
 def predict():
@@ -226,41 +243,53 @@ def predict():
     Accepts: multipart/form-data with 'file' field
     Returns: JSON with top 3 predictions
     """
-    # Handle preflight
+    #  FIXED: Explicit OPTIONS handling
     if request.method == 'OPTIONS':
-        return '', 204
+        response = jsonify({'status': 'ok'})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Accept')
+        return response, 200
     
     try:
         # Check if model is loaded
         if not model_loaded or model is None:
-            logger.warning("⚠️ Prediction request but model not loaded")
-            return jsonify({
+            logger.warning(" Prediction request but model not loaded")
+            response = jsonify({
                 'status': 'error',
                 'message': 'Model not loaded. Please wait for initialization.'
-            }), 503
+            })
+            response.headers.add('Access-Control-Allow-Origin', '*')
+            return response, 503
         
         # Validate file in request
         if 'file' not in request.files:
-            return jsonify({
+            response = jsonify({
                 'status': 'error',
                 'message': 'No file uploaded'
-            }), 400
+            })
+            response.headers.add('Access-Control-Allow-Origin', '*')
+            return response, 400
         
         file = request.files['file']
         
         # Check if file selected
         if file.filename == '':
-            return jsonify({
+            response = jsonify({
                 'status': 'error',
                 'message': 'No file selected'
-            }), 400
+            })
+            response.headers.add('Access-Control-Allow-Origin', '*')
+            return response, 400
         
         # Validate file type
         if not allowed_file(file.filename):
-            return jsonify({
+            response = jsonify({
                 'status': 'error',
                 'message': f'Invalid file type. Allowed: {", ".join(ALLOWED_EXTENSIONS)}'
-            }), 400
+            })
+            response.headers.add('Access-Control-Allow-Origin', '*')
+            return response, 400
         
         # Save file temporarily
         filename = secure_filename(file.filename)
@@ -291,32 +320,39 @@ def predict():
         except:
             pass
         
-        logger.info(f"✅ Prediction: {top_3_predictions[0]['disease']} ({top_3_predictions[0]['confidence_percent']})")
+        logger.info(f" Prediction: {top_3_predictions[0]['disease']} ({top_3_predictions[0]['confidence_percent']})")
         
-        return jsonify({
+        #  FIXED: Add CORS headers to response
+        response = jsonify({
             'status': 'success',
             'prediction': top_3_predictions[0]['disease'],
             'confidence': top_3_predictions[0]['confidence'],
             'confidence_percent': top_3_predictions[0]['confidence_percent'],
             'top_3': top_3_predictions
         })
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response, 200
     
     except Exception as e:
-        logger.exception("❌ Prediction error")
-        return jsonify({
+        logger.exception(" Prediction error")
+        response = jsonify({
             'status': 'error',
             'message': f'Prediction failed: {str(e)}'
-        }), 500
+        })
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response, 500
 
 @app.route('/api/classes', methods=['GET'])
 def get_classes():
     """Get all available disease classes"""
     try:
         if not class_names:
-            return jsonify({
+            response = jsonify({
                 'status': 'error',
                 'message': 'Classes not loaded'
-            }), 503
+            })
+            response.headers.add('Access-Control-Allow-Origin', '*')
+            return response, 503
         
         formatted_classes = [
             {
@@ -326,18 +362,22 @@ def get_classes():
             for name in class_names
         ]
         
-        return jsonify({
+        response = jsonify({
             'status': 'success',
             'classes': formatted_classes,
             'count': len(formatted_classes)
         })
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response, 200
     
     except Exception as e:
-        logger.exception("❌ Error getting classes")
-        return jsonify({
+        logger.exception(" Error getting classes")
+        response = jsonify({
             'status': 'error',
             'message': str(e)
-        }), 500
+        })
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response, 500
 
 # ============================================================================
 # Error Handlers
@@ -345,39 +385,39 @@ def get_classes():
 
 @app.errorhandler(404)
 def not_found(error):
-    return jsonify({
+    response = jsonify({
         'status': 'error',
         'message': 'Endpoint not found'
-    }), 404
+    })
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    return response, 404
 
 @app.errorhandler(413)
 def too_large(error):
-    return jsonify({
+    response = jsonify({
         'status': 'error',
         'message': f'File too large. Maximum size: {MAX_FILE_SIZE / (1024*1024):.0f}MB'
-    }), 413
+    })
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    return response, 413
 
 @app.errorhandler(500)
 def internal_error(error):
     logger.exception("Internal server error")
-    return jsonify({
+    response = jsonify({
         'status': 'error',
         'message': 'Internal server error'
-    }), 500
+    })
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    return response, 500
 
 # ============================================================================
 # Startup
 # ============================================================================
 
-# Load model on startup (before first request)
-@app.before_request
-def initialize():
-    """Initialize model before first request"""
-    global model_loaded
-    if not model_loaded:
-        load_model_and_classes()
+#  REMOVED: Duplicate before_request initialization (kept only app_context version)
 
-# Also try to load immediately on import
+# Load model immediately on import
 with app.app_context():
     load_model_and_classes()
 
@@ -399,6 +439,5 @@ if __name__ == '__main__':
         port=port,
         debug=debug
     )
-    
-    
-    
+
+
