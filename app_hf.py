@@ -1,5 +1,6 @@
 """
-FarmAI Flask API - Google Cloud Run Production Ready (CORS FULLY FIXED)
+FarmAI Flask API - FINAL WORKING VERSION
+Optimized for Cloud Run with aggressive memory management
 """
 
 import os
@@ -7,16 +8,26 @@ import sys
 import json
 import logging
 import gc
+import signal
+from contextlib import contextmanager
 from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
+
+# Force CPU-only BEFORE any TF/Keras imports
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+os.environ['OMP_NUM_THREADS'] = '2'
+os.environ['TF_NUM_INTRAOP_THREADS'] = '2'
+os.environ['TF_NUM_INTEROP_THREADS'] = '2'
 
 import keras
 import numpy as np
 from PIL import Image
 from huggingface_hub import hf_hub_download
 
-# Setup logging
+# Logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -26,49 +37,26 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# ============================================================================
-# CRITICAL FIX: Complete CORS Configuration for Cloud Run
-# ============================================================================
+# CORS
+CORS(app, resources={r"/*": {"origins": "*"}})
 
-# Method 1: Flask-CORS with explicit configuration
-CORS(app, 
-     resources={
-         r"/*": {
-             "origins": "*",
-             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-             "allow_headers": ["Content-Type", "Accept", "Authorization", "X-Requested-With"],
-             "expose_headers": ["Content-Type"],
-             "supports_credentials": False,
-             "max_age": 3600
-         }
-     }
-)
-
-# Method 2: Manual headers on EVERY response (Cloud Run requires this)
 @app.after_request
 def add_cors_headers(response):
-    """Add CORS headers to every single response"""
     response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Accept, Authorization, X-Requested-With'
-    response.headers['Access-Control-Max-Age'] = '3600'
-    response.headers['Access-Control-Expose-Headers'] = 'Content-Type'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Accept'
     return response
 
-# Method 3: Handle OPTIONS preflight explicitly
 @app.before_request
 def handle_preflight():
-    """Handle OPTIONS preflight requests for CORS"""
     if request.method == "OPTIONS":
-        logger.info(f"OPTIONS preflight request to {request.path}")
         response = make_response('', 204)
         response.headers['Access-Control-Allow-Origin'] = '*'
-        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Accept, Authorization, X-Requested-With'
-        response.headers['Access-Control-Max-Age'] = '3600'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Accept'
         return response
 
-# Configuration
+# Config
 UPLOAD_FOLDER = 'uploads'
 MODEL_FILENAME = 'crop_disease_classifier_final.keras'
 CLASS_INDICES_FILENAME = 'class_indices.json'
@@ -76,8 +64,9 @@ MODEL_DIR = 'models'
 MODEL_PATH = os.path.join(MODEL_DIR, MODEL_FILENAME)
 CLASS_INDICES_PATH = os.path.join(MODEL_DIR, CLASS_INDICES_FILENAME)
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp', 'bmp'}
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+MAX_FILE_SIZE = 5 * 1024 * 1024
 HUGGINGFACE_REPO = "rathodashish10/farmai-models"
+PREDICTION_TIMEOUT = 120  # 2 minutes max
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(MODEL_DIR, exist_ok=True)
@@ -88,13 +77,26 @@ model = None
 class_names = []
 model_loaded = False
 
+# Timeout context manager
+class TimeoutException(Exception):
+    pass
+
+@contextmanager
+def time_limit(seconds):
+    def signal_handler(signum, frame):
+        raise TimeoutException("Timed out!")
+    signal.signal(signal.SIGALRM, signal_handler)
+    signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+
 def download_from_huggingface():
-    """Download model and class indices from Hugging Face"""
+    """Download model files"""
     try:
         logger.info("="*60)
-        logger.info("Checking Hugging Face Models...")
-        logger.info(f"Repository: {HUGGINGFACE_REPO}")
-        logger.info("="*60)
+        logger.info("Downloading from Hugging Face...")
         
         if not os.path.exists(MODEL_PATH):
             logger.info(f"Downloading {MODEL_FILENAME}...")
@@ -104,10 +106,9 @@ def download_from_huggingface():
                 local_dir=MODEL_DIR,
                 local_dir_use_symlinks=False
             )
-            logger.info(f"Model downloaded successfully!")
+            logger.info("Model downloaded")
         else:
-            size_mb = os.path.getsize(MODEL_PATH) / (1024 * 1024)
-            logger.info(f"Model already exists ({size_mb:.1f} MB)")
+            logger.info("Model exists")
         
         if not os.path.exists(CLASS_INDICES_PATH):
             logger.info(f"Downloading {CLASS_INDICES_FILENAME}...")
@@ -117,170 +118,209 @@ def download_from_huggingface():
                 local_dir=MODEL_DIR,
                 local_dir_use_symlinks=False
             )
-            logger.info(f"Class indices downloaded successfully!")
+            logger.info("Classes downloaded")
         else:
-            logger.info(f"Class indices already exist")
+            logger.info("Classes exist")
         
         return True
     except Exception as e:
-        logger.error(f"Error downloading from Hugging Face: {e}")
+        logger.error(f"Download failed: {e}")
         return False
 
 def load_model_and_classes():
-    """Load ML model and class names"""
+    """Load model with aggressive optimization"""
     global model, class_names, model_loaded
+    
     try:
         logger.info("="*60)
-        logger.info("Initializing FarmAI Model...")
+        logger.info("LOADING MODEL (CPU-optimized)")
         logger.info("="*60)
 
         if not download_from_huggingface():
-            logger.error("Failed to download models from Hugging Face")
+            logger.error("Download failed")
             return False
         
-        logger.info(f"Loading class indices from {CLASS_INDICES_PATH}...")
+        # Load classes
+        logger.info("Loading classes...")
         with open(CLASS_INDICES_PATH, 'r') as f:
             class_indices = json.load(f)
         class_names = list(class_indices.keys())
-        logger.info(f"Loaded {len(class_names)} disease classes")
+        logger.info(f"Loaded {len(class_names)} classes")
 
-        logger.info(f"Loading Keras model from {MODEL_PATH}...")
-        logger.info(f"Using Keras version: {keras.__version__}")
-        
+        # Clear memory
+        logger.info("Clearing memory...")
         gc.collect()
         keras.backend.clear_session()
         
-        model = keras.models.load_model(MODEL_PATH)
-        model.compile(optimizer='adam', loss='categorical_crossentropy')
+        # Load model
+        logger.info(f"Loading model from {MODEL_PATH}...")
+        logger.info(f"Keras: {keras.__version__}")
         
-        # Warm up model
-        _ = model.predict(np.zeros((1, 160, 160, 3)), verbose=0)
+        model = keras.models.load_model(MODEL_PATH, compile=False)
+        
+        # Optimize for CPU
+        logger.info("Compiling for CPU...")
+        model.compile(
+            optimizer='adam',
+            loss='categorical_crossentropy',
+            run_eagerly=False
+        )
+        
+        # Warm up
+        logger.info("Warming up model...")
+        dummy = np.zeros((1, 160, 160, 3), dtype=np.float32)
+        
+        try:
+            with time_limit(30):
+                _ = model.predict(dummy, verbose=0)
+                logger.info("Warm-up complete")
+        except TimeoutException:
+            logger.warning("Warm-up timeout - continuing anyway")
+        
+        del dummy
+        gc.collect()
         
         model_loaded = True
-        logger.info("Model loaded successfully!")
-        logger.info(f"Model input shape: {model.input_shape}")
-        logger.info(f"Model output shape: {model.output_shape}")
+        logger.info("✓ MODEL READY")
+        logger.info(f"  Input: {model.input_shape}")
+        logger.info(f"  Output: {model.output_shape}")
         logger.info("="*60)
+        
         return True
+        
     except Exception as e:
-        logger.error(f"Error loading model: {e}")
-        logger.exception("Full traceback:")
+        logger.error(f"Model loading failed: {e}")
+        logger.exception("Traceback:")
         model_loaded = False
         return False
 
 def allowed_file(filename):
-    """Check if file extension is allowed"""
     if not filename:
         return False
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def preprocess_image(img_path):
-    """Preprocess image for model prediction"""
+    """Fast preprocessing"""
     try:
-        img = Image.open(img_path).convert('RGB')
-        img = img.resize((160, 160))
-        img_array = np.array(img, dtype=np.float32) / 255.0
+        logger.info(f"Preprocessing: {os.path.basename(img_path)}")
+        
+        with Image.open(img_path) as img:
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            img = img.resize((160, 160), Image.Resampling.BILINEAR)  # BILINEAR faster than LANCZOS
+            img_array = np.array(img, dtype=np.float32)
+        
+        img_array = img_array / 255.0
         img_array = np.expand_dims(img_array, axis=0)
+        
+        logger.info(f"Shape: {img_array.shape}")
         return img_array
+        
     except Exception as e:
-        logger.error(f"Error preprocessing image: {e}")
+        logger.error(f"Preprocessing failed: {e}")
         raise
 
 def format_disease_name(disease_name):
-    """Format disease name for better readability"""
     formatted = disease_name.replace('___', ': ')
     formatted = formatted.replace('_', ' ')
     return formatted.title()
 
-# ============================================================================
 # API Endpoints
-# ============================================================================
 
 @app.route('/', methods=['GET', 'OPTIONS'])
 @app.route('/health', methods=['GET', 'OPTIONS'])
 def health_check():
-    """Health check endpoint"""
-    logger.info(f"Health check - Method: {request.method}")
-    
     if request.method == 'OPTIONS':
         return '', 204
     
-    response_data = {
+    return jsonify({
         'status': 'healthy' if model_loaded else 'starting',
-        'message': 'FarmAI API is running on Google Cloud Run!',
+        'message': 'FarmAI API - Production Ready',
         'model_loaded': model_loaded,
         'classes_count': len(class_names),
         'keras_version': keras.__version__,
-        'huggingface_repo': HUGGINGFACE_REPO,
+        'cpu_only': True,
+        'optimized': True,
         'cors_enabled': True,
-        'cloud_platform': 'Google Cloud Run',
         'endpoints': {
             'health': '/',
             'predict': '/api/predict',
             'classes': '/api/classes'
         }
-    }
-    
-    return jsonify(response_data), 200
+    }), 200
 
 @app.route('/api/predict', methods=['POST', 'OPTIONS'])
 def predict():
-    """Disease prediction endpoint"""
-    logger.info("="*60)
-    logger.info(f"PREDICT ENDPOINT - Method: {request.method}")
-    logger.info(f"Origin: {request.headers.get('Origin', 'Not specified')}")
-    logger.info("="*60)
-    
     if request.method == 'OPTIONS':
-        logger.info("Handling OPTIONS preflight for /api/predict")
         return '', 204
     
+    filepath = None
+    start_time = None
+    
     try:
-        # Check model loaded
+        import time
+        start_time = time.time()
+        
+        logger.info("="*60)
+        logger.info("PREDICTION REQUEST")
+        logger.info("="*60)
+        
+        # Check model
         if not model_loaded or model is None:
-            logger.error("MODEL NOT LOADED!")
+            logger.error("Model not loaded")
             return jsonify({
                 'status': 'error',
-                'message': 'Model not loaded. Please wait for initialization.'
+                'message': 'Model not loaded'
             }), 503
         
-        # Check file in request
+        # Validate request
         if 'file' not in request.files:
-            logger.error("NO FILE IN REQUEST")
+            logger.error("No file")
             return jsonify({
                 'status': 'error',
                 'message': 'No file uploaded'
             }), 400
         
         file = request.files['file']
-        logger.info(f"File received: {file.filename}")
+        logger.info(f"File: {file.filename}")
         
         if file.filename == '':
-            return jsonify({
-                'status': 'error',
-                'message': 'No file selected'
-            }), 400
+            return jsonify({'status': 'error', 'message': 'No file selected'}), 400
         
         if not allowed_file(file.filename):
-            return jsonify({
-                'status': 'error',
-                'message': f'Invalid file type. Allowed: {", ".join(ALLOWED_EXTENSIONS)}'
-            }), 400
+            return jsonify({'status': 'error', 'message': 'Invalid file type'}), 400
         
-        # Save and process file
+        # Save file
         filename = secure_filename(file.filename)
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
+        logger.info(f"Saved: {filename}")
         
-        logger.info(f"Processing image: {filename}")
-        
-        # Preprocess and predict
+        # Preprocess
+        logger.info("Preprocessing...")
+        preprocess_start = time.time()
         img_array = preprocess_image(filepath)
-        logger.info("Running prediction...")
+        preprocess_time = time.time() - preprocess_start
+        logger.info(f"Preprocess time: {preprocess_time:.2f}s")
         
-        predictions = model.predict(img_array, verbose=0)[0]
+        # Predict with timeout
+        logger.info("Running prediction with timeout...")
+        predict_start = time.time()
         
-        # Get top 3 predictions
+        try:
+            with time_limit(PREDICTION_TIMEOUT):
+                logger.info("Calling model.predict()...")
+                predictions = model.predict(img_array, verbose=0)[0]
+                logger.info("Prediction returned")
+        except TimeoutException:
+            logger.error(f"Prediction timeout after {PREDICTION_TIMEOUT}s")
+            raise Exception(f"Prediction timeout - model too slow on this instance")
+        
+        predict_time = time.time() - predict_start
+        logger.info(f"Prediction time: {predict_time:.2f}s")
+        
+        # Process results
+        logger.info("Processing results...")
         top_3_indices = np.argsort(predictions)[-3:][::-1]
         top_3_predictions = [
             {
@@ -292,34 +332,44 @@ def predict():
             for idx in top_3_indices
         ]
         
+        total_time = time.time() - start_time
+        logger.info(f"✓ Result: {top_3_predictions[0]['disease']} ({top_3_predictions[0]['confidence_percent']})")
+        logger.info(f"Total time: {total_time:.2f}s")
+        logger.info("="*60)
+        
         # Cleanup
         try:
-            os.remove(filepath)
+            if filepath and os.path.exists(filepath):
+                os.remove(filepath)
         except:
             pass
         
-        logger.info(f"Prediction: {top_3_predictions[0]['disease']} ({top_3_predictions[0]['confidence_percent']})")
-        
-        # Free memory
         del img_array, predictions
         gc.collect()
         
-        response_data = {
+        return jsonify({
             'status': 'success',
             'prediction': top_3_predictions[0]['disease'],
             'confidence': top_3_predictions[0]['confidence'],
             'confidence_percent': top_3_predictions[0]['confidence_percent'],
-            'top_3': top_3_predictions
-        }
+            'top_3': top_3_predictions,
+            'inference_time': f"{predict_time:.2f}s",
+            'total_time': f"{total_time:.2f}s"
+        }), 200
         
-        return jsonify(response_data), 200
-    
     except Exception as e:
         logger.error("="*60)
-        logger.error("PREDICTION FAILED")
-        logger.error(f"Error: {str(e)}")
-        logger.exception("Full traceback:")
+        logger.error(f"FAILED: {str(e)}")
+        logger.exception("Traceback:")
         logger.error("="*60)
+        
+        try:
+            if filepath and os.path.exists(filepath):
+                os.remove(filepath)
+        except:
+            pass
+        
+        gc.collect()
         
         return jsonify({
             'status': 'error',
@@ -328,18 +378,12 @@ def predict():
 
 @app.route('/api/classes', methods=['GET', 'OPTIONS'])
 def get_classes():
-    """Get all available disease classes"""
-    logger.info(f"Classes endpoint - Method: {request.method}")
-    
     if request.method == 'OPTIONS':
         return '', 204
     
     try:
         if not class_names:
-            return jsonify({
-                'status': 'error',
-                'message': 'Classes not loaded'
-            }), 503
+            return jsonify({'status': 'error', 'message': 'Classes not loaded'}), 503
         
         formatted_classes = [
             {
@@ -356,67 +400,35 @@ def get_classes():
         }), 200
     except Exception as e:
         logger.exception("Error getting classes")
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
-# ============================================================================
-# Error Handlers (with CORS headers)
-# ============================================================================
-
+# Error handlers
 @app.errorhandler(404)
 def not_found(error):
-    response = jsonify({
-        'status': 'error',
-        'message': 'Endpoint not found'
-    })
-    return response, 404
+    return jsonify({'status': 'error', 'message': 'Not found'}), 404
 
 @app.errorhandler(413)
 def too_large(error):
-    response = jsonify({
-        'status': 'error',
-        'message': f'File too large. Maximum size: {MAX_FILE_SIZE / (1024*1024):.0f}MB'
-    })
-    return response, 413
+    return jsonify({'status': 'error', 'message': 'File too large'}), 413
 
 @app.errorhandler(500)
 def internal_error(error):
-    logger.exception("Internal server error")
-    response = jsonify({
-        'status': 'error',
-        'message': 'Internal server error'
-    })
-    return response, 500
+    logger.exception("Internal error")
+    return jsonify({'status': 'error', 'message': 'Internal error'}), 500
 
-# ============================================================================
 # Startup
-# ============================================================================
-
-# Load model on startup
+logger.info("Starting FarmAI Backend...")
 with app.app_context():
-    logger.info("Starting model initialization...")
     load_model_and_classes()
-
-# ============================================================================
-# Main
-# ============================================================================
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
-    debug = os.environ.get('DEBUG', 'False').lower() == 'true'
     
     logger.info("="*60)
-    logger.info(f"Starting FarmAI Backend on Google Cloud Run")
-    logger.info(f"  Port: {port}")
-    logger.info(f"  Debug: {debug}")
-    logger.info(f"  CORS: Enabled for all origins")
-    logger.info(f"  Model Loaded: {model_loaded}")
+    logger.info(f"FarmAI Backend Starting")
+    logger.info(f"Port: {port}")
+    logger.info(f"Model: {model_loaded}")
+    logger.info(f"CPU Optimized: True")
     logger.info("="*60)
     
-    app.run(
-        host='0.0.0.0',
-        port=port,
-        debug=debug
-    )
+    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
