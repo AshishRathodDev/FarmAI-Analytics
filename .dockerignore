@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+*.egg-info/
+
+# Data and uploads (don't copy to container)
+data/
+uploads/
+logs/
+*.log
+
+# Notebooks and tests
+notebooks/
+tests/
+*.ipynb
+
+# Git and IDEs
+.git/
+.gitignore
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Documentation
+README.md
+LICENSE
+*.md
+
+# Deployment files (not needed in container)
+Procfile
+runtime.txt
+requirements.txt
+requirements_dev.txt
+
+# Large model files (will download from HuggingFace)
+models/*.h5
+models/*.keras
+
+# Keep only class_indices.json if it exists
+!models/class_indices.json
+
+# Other
+.DS_Store
+*.zip
+*.tar.gz

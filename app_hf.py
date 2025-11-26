@@ -1,6 +1,6 @@
 """
 FarmAI Flask API - FINAL WORKING VERSION
-Optimized for Cloud Run with aggressive memory management
+Optimized for Cloud Run (Signal Timeout Removed to fix 500 Error)
 """
 
 import os
@@ -8,8 +8,8 @@ import sys
 import json
 import logging
 import gc
-import signal
-from contextlib import contextmanager
+# import signal  <-- REMOVED THIS
+# from contextlib import contextmanager <-- REMOVED THIS
 from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
@@ -66,7 +66,6 @@ CLASS_INDICES_PATH = os.path.join(MODEL_DIR, CLASS_INDICES_FILENAME)
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp', 'bmp'}
 MAX_FILE_SIZE = 5 * 1024 * 1024
 HUGGINGFACE_REPO = "rathodashish10/farmai-models"
-PREDICTION_TIMEOUT = 120  # 2 minutes max
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(MODEL_DIR, exist_ok=True)
@@ -76,21 +75,6 @@ app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
 model = None
 class_names = []
 model_loaded = False
-
-# Timeout context manager
-class TimeoutException(Exception):
-    pass
-
-@contextmanager
-def time_limit(seconds):
-    def signal_handler(signum, frame):
-        raise TimeoutException("Timed out!")
-    signal.signal(signal.SIGALRM, signal_handler)
-    signal.alarm(seconds)
-    try:
-        yield
-    finally:
-        signal.alarm(0)
 
 def download_from_huggingface():
     """Download model files"""
@@ -170,12 +154,12 @@ def load_model_and_classes():
         logger.info("Warming up model...")
         dummy = np.zeros((1, 160, 160, 3), dtype=np.float32)
         
+        # REMOVED SIGNAL TIMEOUT HERE
         try:
-            with time_limit(30):
-                _ = model.predict(dummy, verbose=0)
-                logger.info("Warm-up complete")
-        except TimeoutException:
-            logger.warning("Warm-up timeout - continuing anyway")
+            _ = model.predict(dummy, verbose=0)
+            logger.info("Warm-up complete")
+        except Exception as e:
+            logger.warning(f"Warm-up failed but continuing: {e}")
         
         del dummy
         gc.collect()
@@ -207,7 +191,7 @@ def preprocess_image(img_path):
         with Image.open(img_path) as img:
             if img.mode != 'RGB':
                 img = img.convert('RGB')
-            img = img.resize((160, 160), Image.Resampling.BILINEAR)  # BILINEAR faster than LANCZOS
+            img = img.resize((160, 160), Image.Resampling.BILINEAR)
             img_array = np.array(img, dtype=np.float32)
         
         img_array = img_array / 255.0
@@ -303,18 +287,12 @@ def predict():
         preprocess_time = time.time() - preprocess_start
         logger.info(f"Preprocess time: {preprocess_time:.2f}s")
         
-        # Predict with timeout
-        logger.info("Running prediction with timeout...")
+        # Predict (WITHOUT SIGNAL TIMEOUT)
+        logger.info("Running prediction...")
         predict_start = time.time()
         
-        try:
-            with time_limit(PREDICTION_TIMEOUT):
-                logger.info("Calling model.predict()...")
-                predictions = model.predict(img_array, verbose=0)[0]
-                logger.info("Prediction returned")
-        except TimeoutException:
-            logger.error(f"Prediction timeout after {PREDICTION_TIMEOUT}s")
-            raise Exception(f"Prediction timeout - model too slow on this instance")
+        # Direct prediction call without timeout wrapper
+        predictions = model.predict(img_array, verbose=0)[0]
         
         predict_time = time.time() - predict_start
         logger.info(f"Prediction time: {predict_time:.2f}s")

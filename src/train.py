@@ -172,8 +172,11 @@ def train_model_pipeline(train_generator, val_generator, num_classes):
     print(f"\n✓ Final best model loaded from {config.CHECKPOINT_FILEPATH}")
 
     # Save the final trained model (Path to string)
-    model.save(str(config.FINAL_MODEL_PATH))
-    print(f"✓ Final trained model saved to: {config.FINAL_MODEL_PATH}")
+    final_keras_path = str(config.FINAL_MODEL_PATH).replace('.h5', '.keras')
+    model.save(final_keras_path)
+    print(f"✓ Final trained model saved to: {final_keras_path}")
+
+
 
     return model, combined_history_obj
 

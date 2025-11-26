@@ -43,8 +43,8 @@ class CropDiseaseClassifier:
     Load trained TensorFlow model and perform disease predictions.
     """
 
-    def __init__(self, model_path: Union[str, Path] = "models/crop_disease_model.h5",
-                 image_size: Tuple[int, int] = (224, 224),
+    def __init__(self, model_path: Union[str, Path] = "crop_disease_classifier_final.keras",
+                 image_size: Tuple[int, int] = (160, 160),
                  confidence_threshold: float = 0.65):
         self.model_path = Path(model_path)
         self.model = None

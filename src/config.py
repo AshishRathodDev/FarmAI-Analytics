@@ -90,7 +90,7 @@ VAL_SPLIT = 0.15
 TEST_SPLIT = 0.15
 
 #  CRITICAL: Use only 3 classes for minimal memory footprint
-NUM_CLASSES_TO_USE = 5  # START WITH JUST 3 CLASSES
+NUM_CLASSES_TO_USE = 5  
 
 # ============================================================================
 # CALLBACKS CONFIGURATION
@@ -109,7 +109,7 @@ SAVE_BEST_ONLY = True
 # ============================================================================
 # FILE PATHS
 # ============================================================================
-FINAL_MODEL_PATH = MODELS_DIR / "crop_disease_classifier_final.h5"
+FINAL_MODEL_PATH = MODELS_DIR / "crop_disease_classifier_final.keras"
 CHECKPOINT_FILEPATH = MODELS_DIR / "best_model_checkpoint.h5"
 CLASS_INDICES_PATH = MODELS_DIR / "class_indices.json"
 
