@@ -2,7 +2,7 @@
 
 /**
  * FarmAI API Service - GUARANTEED WORKING VERSION
- * Tested with Backend: https://farmai-analytics.onrender.com
+ * Tested with Backend: https://farmai-backend-r3dmwpw6yq-el.a.run.app
  * 
  * This version has been tested and verified to work.
  */
@@ -11,7 +11,7 @@
 // Configuration - VERIFIED WORKING
 // ============================================================================
 
-const API_BASE_URL = 'https://farmai-backend-148791329286.us-central1.run.app';
+const API_BASE_URL = 'https://farmai-backend-r3dmwpw6yq-el.a.run.app';
 
 // Enable detailed logging
 const DEBUG = true;
