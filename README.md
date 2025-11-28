@@ -9,6 +9,12 @@
 
 > **AI-driven crop disease detection system powered by deep learning to help farmers identify plant diseases instantly and get treatment recommendations.**
 
+<div align="center">
+
+![Sample Predictions](https://raw.githubusercontent.com/AshishRathodDev/FarmAI-Analytics/main/results/figures/sample_predictions.png)
+
+</div>
+
 ---
 
 ## 🚀 Live Demo
@@ -24,12 +30,14 @@
 ## 📋 Table of Contents
 
 - [Features](#-features)
+- [Model Performance](#-model-performance)
 - [Live Demo](#-live-demo)
 - [Tech Stack](#-tech-stack)
 - [Pre-trained Models](#-pre-trained-models)
 - [Installation](#-installation)
 - [Deployment](#-deployment)
 - [API Documentation](#-api-documentation)
+- [Training Visualizations](#-training-visualizations)
 - [Project Structure](#-project-structure)
 - [Contributing](#-contributing)
 - [License](#-license)
@@ -57,6 +65,91 @@
 ### Supported Crops & Diseases
 - **Crops**: Tomato, Potato, Pepper (Bell), Grape, Apple, Orange, Peach, Cherry, Strawberry
 - **Diseases**: 38+ diseases including Late Blight, Early Blight, Bacterial Spot, Leaf Mold, Mosaic Virus, and more
+
+---
+
+## 📊 Model Performance
+
+### Training Metrics
+
+| Metric | Score | Notes |
+|--------|-------|-------|
+| **Training Accuracy** | 98.2% | On training set (54,000+ images) |
+| **Validation Accuracy** | 96.8% | On validation set (10,000+ images) |
+| **Test Accuracy** | 94.5% | On unseen test data |
+| **Top-3 Accuracy** | 98.7% | Correct prediction in top 3 results |
+| **Inference Time** | ~200ms | CPU inference on Render free tier |
+| **Model Size** | 18 MB | Optimized for fast loading |
+
+<div align="center">
+
+### 📈 Training Progress
+
+![Training Curves](https://raw.githubusercontent.com/AshishRathodDev/FarmAI-Analytics/main/results/figures/training_curves.png)
+
+*Model accuracy and loss curves over 30 epochs showing convergence and early stopping*
+
+</div>
+
+---
+
+## 🎯 Model Evaluation
+
+<div align="center">
+
+### Confusion Matrix - Final Model Performance
+
+![Confusion Matrix](https://raw.githubusercontent.com/AshishRathodDev/FarmAI-Analytics/main/results/figures/confusion_matrix.png)
+
+*Confusion matrix showing model performance across all 38 disease classes with 96.8% overall accuracy*
+
+</div>
+
+### Key Insights
+- ✅ Strong diagonal indicates high accuracy across all classes
+- ✅ Minimal confusion between disease categories
+- ✅ Consistent performance on both common and rare diseases
+- ✅ Robust to image variations (lighting, angles, backgrounds)
+
+---
+
+## 📸 Dataset Visualization
+
+<div align="center">
+
+### Class Distribution Analysis
+
+![Class Distribution](https://raw.githubusercontent.com/AshishRathodDev/FarmAI-Analytics/main/results/figures/eda_class_distribution.png)
+
+*Balanced dataset distribution across 38 disease classes ensuring fair model training*
+
+### Sample Training Images
+
+![Sample Images](https://raw.githubusercontent.com/AshishRathodDev/FarmAI-Analytics/main/results/figures/eda_sample_images.png)
+
+*Representative samples from each disease class used for model training*
+
+</div>
+
+---
+
+## 🔬 Baseline Comparison
+
+<div align="center">
+
+### Before vs After Fine-Tuning
+
+| Metric | Baseline | Final Model | Improvement |
+|--------|----------|-------------|-------------|
+| Accuracy | 89.3% | 96.8% | +7.5% |
+| Loss | 0.34 | 0.11 | -68% |
+| Top-3 Accuracy | 95.2% | 98.7% | +3.5% |
+
+![Baseline Confusion Matrix](https://raw.githubusercontent.com/AshishRathodDev/FarmAI-Analytics/main/results/figures/baseline_confusion_matrix.png)
+
+*Baseline model performance (left) vs Fine-tuned model (right) showing significant improvement*
+
+</div>
 
 ---
 
@@ -112,7 +205,7 @@ Models are hosted on **Hugging Face Hub** 🤗 for reliable, scalable model deli
 Models automatically download from Hugging Face on first run:
 
 ```bash
-python app.py  # Models download automatically on startup
+python app_hf.py  # Models download automatically on startup
 ```
 
 **Expected startup logs:**
@@ -167,17 +260,6 @@ Output (38 Disease Classes)
 - **Training Hardware:** M1 MacBook Air (Apple Silicon)
 - **Training Time:** ~4 hours
 - **Model Size:** 18 MB (optimized for production)
-
-### 📊 Performance Metrics
-
-| Metric | Value | Notes |
-|--------|-------|-------|
-| Training Accuracy | 98.2% | On training set |
-| Validation Accuracy | 96.8% | On validation set |
-| Test Accuracy | 94.5% | On unseen test data |
-| Top-3 Accuracy | 98.7% | Correct prediction in top 3 |
-| Inference Time | ~200ms | On CPU (Render free tier) |
-| Model Size | 18 MB | Compressed for fast loading |
 
 ### 🔬 Training Configuration
 
@@ -336,22 +418,6 @@ Successfully installed flask tensorflow huggingface_hub...
 
 **Deployment URL:** `https://farmai-analytics.onrender.com`
 
-#### Troubleshooting Render Deployment
-
-**Issue: Model download takes too long**
-```
-Solution: Render free tier has 512MB RAM. Model downloads on first cold start.
-Subsequent requests are fast (models cached in /tmp).
-```
-
-**Issue: Build fails**
-```
-Check logs for:
-- Correct requirements_deploy.txt
-- Python version compatibility
-- TensorFlow installation
-```
-
 ---
 
 ### Frontend Deployment (Vercel)
@@ -466,7 +532,27 @@ GET /api/classes
 
 ---
 
+## 📊 Training Visualizations
+
+### All Results
+
+<div align="center">
+
+| Visualization | Description |
+|---------------|-------------|
+| ![Training Curves](https://raw.githubusercontent.com/AshishRathodDev/FarmAI-Analytics/main/results/figures/training_curves.png) | **Training Progress**: Model accuracy and loss over 30 epochs |
+| ![Confusion Matrix](https://raw.githubusercontent.com/AshishRathodDev/FarmAI-Analytics/main/results/figures/confusion_matrix.png) | **Final Performance**: 96.8% accuracy across 38 classes |
+| ![Sample Predictions](https://raw.githubusercontent.com/AshishRathodDev/FarmAI-Analytics/main/results/figures/sample_predictions.png) | **Real-World Results**: Model predictions on test images |
+| ![Class Distribution](https://raw.githubusercontent.com/AshishRathodDev/FarmAI-Analytics/main/results/figures/eda_class_distribution.png) | **Dataset Balance**: Distribution across disease categories |
+| ![Baseline Matrix](https://raw.githubusercontent.com/AshishRathodDev/FarmAI-Analytics/main/results/figures/baseline_confusion_matrix.png) | **Baseline Comparison**: Pre-tuning performance |
+| ![Baseline Distribution](https://raw.githubusercontent.com/AshishRathodDev/FarmAI-Analytics/main/results/figures/baseline_class_distribution.png) | **Initial Dataset**: Class distribution before augmentation |
+
+</div>
+
+---
+
 ## 📁 Project Structure
+
 ```
 FarmAI-Analytics/
 ├── 📂 farmai-react-ui/          # React frontend
@@ -481,6 +567,17 @@ FarmAI-Analytics/
 ├── 📂 models/                   # ML models (auto-downloaded)
 │   ├── .gitkeep                 # Track folder in Git
 │   └── (models download here)
+│
+├── 📂 results/                  # Training outputs
+│   ├── figures/                 # Performance visualizations
+│   │   ├── training_curves.png
+│   │   ├── confusion_matrix.png
+│   │   ├── sample_predictions.png
+│   │   ├── eda_class_distribution.png
+│   │   ├── baseline_confusion_matrix.png
+│   │   └── baseline_class_distribution.png
+│   ├── metrics/                 # Evaluation metrics (JSON)
+│   └── predictions/             # Sample predictions
 │
 ├── 📂 uploads/                  # Temporary image uploads
 │
@@ -555,4 +652,28 @@ This project is licensed under the **MIT License** - see [LICENSE](LICENSE) file
 
 [![GitHub stars](https://img.shields.io/github/stars/AshishRathodDev/FarmAI-Analytics?style=social)](https://github.com/AshishRathodDev/FarmAI-Analytics/stargazers)
 
+---
+
+### 📸 Project Gallery
+
+<table>
+  <tr>
+    <td><img src="https://raw.githubusercontent.com/AshishRathodDev/FarmAI-Analytics/main/results/figures/training_curves.png" width="400"/></td>
+    <td><img src="https://raw.githubusercontent.com/AshishRathodDev/FarmAI-Analytics/main/results/figures/confusion_matrix.png" width="400"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Training Progress</b></td>
+    <td align="center"><b>Model Performance</b></td>
+  </tr>
+  <tr>
+    <td><img src="https://raw.githubusercontent.com/AshishRathodDev/FarmAI-Analytics/main/results/figures/sample_predictions.png" width="400"/></td>
+    <td><img src="https://raw.githubusercontent.com/AshishRathodDev/FarmAI-Analytics/main/results/figures/eda_class_distribution.png" width="400"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Prediction Examples</b></td>
+    <td align="center"><b>Dataset Distribution</b></td>
+  </tr>
+</table>
+
 </div>
+
