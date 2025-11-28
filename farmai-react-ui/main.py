@@ -1,7 +1,7 @@
 import os
 from flask import Flask, send_from_directory
 
-# Current directory jahan main.py hai
+
 static_folder = os.path.join(os.getcwd(), 'dist')
 
 app = Flask(__name__, static_folder=static_folder, static_url_path='')

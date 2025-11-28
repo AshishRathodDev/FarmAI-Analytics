@@ -42,17 +42,17 @@ def main():
         return True
 
     except FileNotFoundError as e:
-        print(f"\n❌ ERROR: {e}")
+        print(f"\n ERROR: {e}")
         print("DIAGNOSIS: The raw dataset was not found at the expected path.")
         print("ACTION: Please ensure the 'color' folder from PlantVillage dataset is placed inside 'data/raw/plantvillage/'.")
         return False
     except ValueError as e:
-        print(f"\n❌ ERROR: {e}")
+        print(f"\n ERROR: {e}")
         print("DIAGNOSIS: The dataset structure is not as expected or classes are missing.")
         print("ACTION: Verify the contents of 'data/raw/plantvillage/color/' to ensure it contains class directories.")
         return False
     except Exception as e:
-        print(f"\n❌ An unexpected error occurred: {e}")
+        print(f"\n An unexpected error occurred: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -60,3 +60,4 @@ def main():
 if __name__ == "__main__":
     success = main()
     sys.exit(0 if success else 1)
+    

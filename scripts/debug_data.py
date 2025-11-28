@@ -40,7 +40,7 @@ def debug_dataset():
             print(f"\n3. Sample class '{first_class.name}': {len(images)} images")
     
     else:
-        print("\n❌ ERROR: Dataset directory not found!")
+        print("\n ERROR: Dataset directory not found!")
         print("\nPossible locations to check:")
         
         # Check parent directory
@@ -51,7 +51,7 @@ def debug_dataset():
                 print(f"  - {item.name}")
         
         # Suggest solutions
-        print("\n💡 SOLUTIONS:")
+        print("\n SOLUTIONS:")
         print("1. Check if dataset is downloaded")
         print("2. Verify folder name (color vs Color vs plant_village)")
         print("3. Update config.py RAW_DATA_DIR path")

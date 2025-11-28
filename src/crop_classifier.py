@@ -329,3 +329,5 @@ if __name__ == "__main__":
     img = Image.new("RGB", classifier.image_size, (128, 128, 128))
     result = classifier.predict(img)
     print("Sample prediction:", result)
+    
+    

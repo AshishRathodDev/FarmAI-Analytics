@@ -33,7 +33,7 @@ class AnalyticsEngine:
             database_manager: Instance of FarmAIDatabaseManager
         """
         self.db = database_manager
-        logger.info("✅ Analytics engine initialized")
+        logger.info(" Analytics engine initialized")
     
     def get_dashboard_metrics(self) -> Dict:
         """
@@ -67,11 +67,11 @@ class AnalyticsEngine:
                 'system_health': self._calculate_system_health(summary)
             }
             
-            logger.info("✅ Dashboard metrics generated")
+            logger.info(" Dashboard metrics generated")
             return metrics
         
         except Exception as e:
-            logger.error(f"❌ Error generating dashboard metrics: {str(e)}")
+            logger.error(f" Error generating dashboard metrics: {str(e)}")
             return self._get_empty_metrics()
     
     def get_trend_analysis(self, days: int = 30) -> Dict:
@@ -117,11 +117,11 @@ class AnalyticsEngine:
                 'trend_direction': self._determine_trend_direction(df['queries'].tolist())
             }
             
-            logger.info(f"✅ Trend analysis generated for {days} days")
+            logger.info(f" Trend analysis generated for {days} days")
             return trend_data
         
         except Exception as e:
-            logger.error(f"❌ Error in trend analysis: {str(e)}")
+            logger.error(f" Error in trend analysis: {str(e)}")
             return {'error': str(e)}
     
     def get_disease_distribution(self, limit: int = 10) -> pd.DataFrame:
@@ -147,11 +147,11 @@ class AnalyticsEngine:
                 # Sort by count
                 df = df.sort_values('count', ascending=False)
             
-            logger.info(f"✅ Disease distribution generated ({len(df)} diseases)")
+            logger.info(f" Disease distribution generated ({len(df)} diseases)")
             return df
         
         except Exception as e:
-            logger.error(f"❌ Error getting disease distribution: {str(e)}")
+            logger.error(f" Error getting disease distribution: {str(e)}")
             return pd.DataFrame()
     
     def get_crop_statistics(self) -> pd.DataFrame:
@@ -186,11 +186,11 @@ class AnalyticsEngine:
                 df['avg_response_time'] = df['avg_response_time'].round(2)
                 df['avg_confidence'] = df['avg_confidence'].round(4)
             
-            logger.info(f"✅ Crop statistics generated")
+            logger.info(f" Crop statistics generated")
             return df
         
         except Exception as e:
-            logger.error(f"❌ Error getting crop statistics: {str(e)}")
+            logger.error(f" Error getting crop statistics: {str(e)}")
             return pd.DataFrame()
     
     def get_performance_metrics(self) -> Dict:
@@ -244,11 +244,11 @@ class AnalyticsEngine:
                 'performance_grade': self._calculate_performance_grade(query_perf, model_perf)
             }
             
-            logger.info("✅ Performance metrics calculated")
+            logger.info(" Performance metrics calculated")
             return metrics
         
         except Exception as e:
-            logger.error(f"❌ Error calculating performance metrics: {str(e)}")
+            logger.error(f" Error calculating performance metrics: {str(e)}")
             return {}
     
     def get_farmer_engagement_metrics(self) -> Dict:
@@ -301,11 +301,11 @@ class AnalyticsEngine:
                 'engagement_score': self._calculate_engagement_score(active_farmers, new_farmers)
             }
             
-            logger.info("✅ Engagement metrics calculated")
+            logger.info(" Engagement metrics calculated")
             return metrics
         
         except Exception as e:
-            logger.error(f"❌ Error calculating engagement metrics: {str(e)}")
+            logger.error(f" Error calculating engagement metrics: {str(e)}")
             return {}
     
     def generate_insights(self) -> List[str]:
@@ -323,13 +323,13 @@ class AnalyticsEngine:
             
             # Insight 1: User growth
             if trends.get('query_growth', 0) > 10:
-                insights.append(f"📈 Platform usage is growing rapidly! {trends['query_growth']:.1f}% increase in queries")
+                insights.append(f" Platform usage is growing rapidly! {trends['query_growth']:.1f}% increase in queries")
             
             # Insight 2: Model performance
             if metrics.get('model_accuracy', 0) > 90:
-                insights.append(f"🎯 Excellent model performance! {metrics['model_accuracy']:.1f}% accuracy")
+                insights.append(f" Excellent model performance! {metrics['model_accuracy']:.1f}% accuracy")
             elif metrics.get('model_accuracy', 0) < 70:
-                insights.append(f"⚠️ Model accuracy needs improvement: {metrics['model_accuracy']:.1f}%")
+                insights.append(f" Model accuracy needs improvement: {metrics['model_accuracy']:.1f}%")
             
             # Insight 3: Response time
             if metrics.get('avg_response_time', 0) < 2:
@@ -337,18 +337,18 @@ class AnalyticsEngine:
             
             # Insight 4: Top disease
             if metrics.get('top_disease') != 'N/A':
-                insights.append(f"🦠 Most detected disease: {metrics['top_disease']}")
+                insights.append(f" Most detected disease: {metrics['top_disease']}")
             
             # Insight 5: Engagement
             if metrics.get('queries_per_farmer', 0) > 3:
-                insights.append(f"👨‍🌾 High farmer engagement! Avg {metrics['queries_per_farmer']:.1f} queries per farmer")
+                insights.append(f" High farmer engagement! Avg {metrics['queries_per_farmer']:.1f} queries per farmer")
             
-            logger.info(f"✅ Generated {len(insights)} insights")
+            logger.info(f" Generated {len(insights)} insights")
             
         except Exception as e:
-            logger.error(f"❌ Error generating insights: {str(e)}")
+            logger.error(f" Error generating insights: {str(e)}")
         
-        return insights if insights else ["📊 Start using the platform to see insights here!"]
+        return insights if insights else [" Start using the platform to see insights here!"]
     
     # ==================== HELPER METHODS ====================
     
@@ -375,11 +375,11 @@ class AnalyticsEngine:
         response_time = summary.get('avg_response_time', 999)
         
         if accuracy > 85 and response_time < 3:
-            return "🟢 Healthy"
+            return " Healthy"
         elif accuracy > 70 and response_time < 5:
-            return "🟡 Good"
+            return " Good"
         else:
-            return "🔴 Needs Attention"
+            return " Needs Attention"
     
     def _calculate_growth(self, values: List[float]) -> float:
         """Calculate percentage growth from first to last value"""
@@ -422,9 +422,9 @@ class AnalyticsEngine:
         slope = np.polyfit(x, y, 1)[0]
         
         if slope > 0.1:
-            return "↗️ Increasing"
+            return " Increasing"
         elif slope < -0.1:
-            return "↘️ Decreasing"
+            return " Decreasing"
         else:
             return "→ Stable"
     
@@ -477,13 +477,13 @@ class AnalyticsEngine:
             total = active_users + new_users
         
         if total > 100:
-            return "🔥 Very High"
+            return " Very High"
         elif total > 50:
-            return "✅ High"
+            return " High"
         elif total > 20:
-            return "📊 Moderate"
+            return " Moderate"
         else:
-            return "📉 Low"
+            return " Low"
     
     def _get_empty_metrics(self) -> Dict:
         """Return empty metrics structure"""
@@ -497,7 +497,7 @@ class AnalyticsEngine:
             'avg_confidence': 0,
             'queries_per_farmer': 0,
             'prediction_confidence_score': 'N/A',
-            'system_health': '🔴 No Data'
+            'system_health': ' No Data'
         }
 
 
@@ -506,3 +506,5 @@ if __name__ == "__main__":
     # This would normally use a real database manager
     print("Analytics Engine - Ready for integration")
     print("Initialize with: analytics = AnalyticsEngine(database_manager)")
+    
+    

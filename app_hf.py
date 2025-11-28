@@ -72,7 +72,7 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp', 'bmp'}
 # Create directories
 for directory in [UPLOAD_FOLDER, MODEL_DIR, CACHE_DIR]:
     os.makedirs(directory, exist_ok=True)
-    logger.info(f"✅ Directory created/verified: {directory}")
+    logger.info(f" Directory created/verified: {directory}")
 
 # Global state
 model = None
@@ -98,7 +98,7 @@ def download_with_retry(repo_id, filename, local_dir, max_retries=3):
     
     for attempt in range(max_retries):
         try:
-            logger.info(f"📥 Download attempt {attempt + 1}/{max_retries}: {filename}")
+            logger.info(f" Download attempt {attempt + 1}/{max_retries}: {filename}")
             
             file_path = hf_hub_download(
                 repo_id=repo_id,
@@ -109,11 +109,11 @@ def download_with_retry(repo_id, filename, local_dir, max_retries=3):
                 force_download=False
             )
             
-            logger.info(f"✅ Downloaded successfully: {filename}")
+            logger.info(f" Downloaded successfully: {filename}")
             return file_path
             
         except Exception as e:
-            logger.error(f"❌ Download attempt {attempt + 1} failed: {e}")
+            logger.error(f" Download attempt {attempt + 1} failed: {e}")
             if attempt < max_retries - 1:
                 wait_time = (attempt + 1) * 5
                 logger.info(f"⏳ Waiting {wait_time}s before retry...")
@@ -127,23 +127,23 @@ def load_model():
     
     try:
         logger.info("=" * 70)
-        logger.info("🚀 MODEL LOADING PROCESS STARTED")
+        logger.info(" MODEL LOADING PROCESS STARTED")
         logger.info("=" * 70)
         
         # Check directories
-        logger.info(f"📁 Upload folder: {UPLOAD_FOLDER}")
-        logger.info(f"📁 Model folder: {MODEL_DIR}")
-        logger.info(f"📁 Cache folder: {CACHE_DIR}")
+        logger.info(f" Upload folder: {UPLOAD_FOLDER}")
+        logger.info(f" Model folder: {MODEL_DIR}")
+        logger.info(f" Cache folder: {CACHE_DIR}")
         
         # Import required libraries
-        logger.info("📦 Importing TensorFlow and Keras...")
+        logger.info(" Importing TensorFlow and Keras...")
         import keras
         import numpy as np
         from PIL import Image
-        logger.info("✅ Libraries imported successfully")
+        logger.info(" Libraries imported successfully")
         
         # Download class indices first (smaller file)
-        logger.info(f"📋 Loading class indices from Hugging Face...")
+        logger.info(f" Loading class indices from Hugging Face...")
         if not os.path.exists(CLASS_INDICES_PATH):
             download_with_retry(
                 repo_id=HUGGINGFACE_REPO,
@@ -151,22 +151,22 @@ def load_model():
                 local_dir=MODEL_DIR
             )
         else:
-            logger.info(f"✅ Class indices already exist: {CLASS_INDICES_PATH}")
+            logger.info(f" Class indices already exist: {CLASS_INDICES_PATH}")
         
         # Load class names
-        logger.info("📖 Reading class indices...")
+        logger.info(" Reading class indices...")
         with open(CLASS_INDICES_PATH, 'r') as f:
             class_data = json.load(f)
             class_names = list(class_data.keys())
         
-        logger.info(f"✅ Loaded {len(class_names)} disease classes:")
+        logger.info(f" Loaded {len(class_names)} disease classes:")
         for i, name in enumerate(class_names[:5], 1):
             logger.info(f"   {i}. {format_disease_name(name)}")
         if len(class_names) > 5:
             logger.info(f"   ... and {len(class_names) - 5} more")
         
         # Download model
-        logger.info(f"🧠 Loading Keras model from Hugging Face...")
+        logger.info(f" Loading Keras model from Hugging Face...")
         if not os.path.exists(MODEL_PATH):
             download_with_retry(
                 repo_id=HUGGINGFACE_REPO,
@@ -174,20 +174,20 @@ def load_model():
                 local_dir=MODEL_DIR
             )
         else:
-            logger.info(f"✅ Model file already exists: {MODEL_PATH}")
+            logger.info(f" Model file already exists: {MODEL_PATH}")
             # Verify file size
             file_size = os.path.getsize(MODEL_PATH) / (1024 * 1024)
-            logger.info(f"📊 Model file size: {file_size:.2f} MB")
+            logger.info(f" Model file size: {file_size:.2f} MB")
         
         # Load model into memory
-        logger.info("🔄 Loading model into memory...")
+        logger.info(" Loading model into memory...")
         model = keras.models.load_model(MODEL_PATH, compile=False)
         
         logger.info("=" * 70)
-        logger.info("✅ MODEL LOADED SUCCESSFULLY!")
-        logger.info(f"🎯 Model input shape: {model.input_shape}")
-        logger.info(f"🎯 Model output shape: {model.output_shape}")
-        logger.info(f"🎯 Total classes: {len(class_names)}")
+        logger.info(" MODEL LOADED SUCCESSFULLY!")
+        logger.info(f" Model input shape: {model.input_shape}")
+        logger.info(f" Model output shape: {model.output_shape}")
+        logger.info(f" Total classes: {len(class_names)}")
         logger.info("=" * 70)
         
         model_loaded = True
@@ -197,7 +197,7 @@ def load_model():
     except Exception as e:
         error_msg = f"Model loading failed: {str(e)}"
         logger.error("=" * 70)
-        logger.error(f"❌ {error_msg}")
+        logger.error(f" {error_msg}")
         logger.error("=" * 70)
         logger.error("Stack trace:", exc_info=True)
         
@@ -267,11 +267,11 @@ def get_classes():
 @app.route('/api/predict', methods=['POST', 'OPTIONS'])
 def predict():
     if request.method == 'OPTIONS':
-        logger.info("✅ OPTIONS preflight request handled")
+        logger.info(" OPTIONS preflight request handled")
         return '', 200
     
     logger.info("=" * 70)
-    logger.info("📥 PREDICTION REQUEST RECEIVED")
+    logger.info(" PREDICTION REQUEST RECEIVED")
     logger.info(f"   Method: {request.method}")
     logger.info(f"   Content-Type: {request.content_type}")
     logger.info(f"   Files: {list(request.files.keys())}")
@@ -284,7 +284,7 @@ def predict():
         # Check model status
         if not model_loaded:
             error_msg = model_loading_error or 'Model is still loading'
-            logger.warning(f"⚠️ Prediction blocked: {error_msg}")
+            logger.warning(f" Prediction blocked: {error_msg}")
             return jsonify({
                 'status': 'error',
                 'error': 'Model is loading. Please wait and try again.',
@@ -311,20 +311,20 @@ def predict():
         file.save(filepath)
         
         file_size = os.path.getsize(filepath) / 1024
-        logger.info(f"📁 Image saved: {filename} ({file_size:.2f} KB)")
+        logger.info(f" Image saved: {filename} ({file_size:.2f} KB)")
         
         # Preprocess
         import numpy as np
         from PIL import Image
         
-        logger.info("🖼️ Preprocessing...")
+        logger.info(" Preprocessing...")
         with Image.open(filepath) as img:
             img = img.convert('RGB').resize((160, 160))
             img_array = np.array(img, dtype=np.float32) / 255.0
             img_array = np.expand_dims(img_array, axis=0)
         
         # Predict
-        logger.info("🧠 Running inference...")
+        logger.info(" Running inference...")
         inference_start = time.time()
         predictions = model.predict(img_array, verbose=0)[0]
         inference_time = time.time() - inference_start
@@ -346,8 +346,8 @@ def predict():
         ]
         
         total_time = time.time() - start_time
-        logger.info(f"✅ Prediction: {disease} ({confidence*100:.2f}%)")
-        logger.info(f"⏱️ Time: {inference_time:.2f}s inference, {total_time:.2f}s total")
+        logger.info(f" Prediction: {disease} ({confidence*100:.2f}%)")
+        logger.info(f"⏱ Time: {inference_time:.2f}s inference, {total_time:.2f}s total")
         
         return jsonify({
             'status': 'success',
@@ -360,7 +360,7 @@ def predict():
         }), 200
         
     except Exception as e:
-        logger.error(f"❌ Prediction error: {e}", exc_info=True)
+        logger.error(f" Prediction error: {e}", exc_info=True)
         return jsonify({'status': 'error', 'error': str(e)}), 500
         
     finally:
@@ -394,21 +394,21 @@ with app.app_context():
     
     if success:
         logger.info("")
-        logger.info("✅" * 35)
+        logger.info("" * 35)
         logger.info("    BACKEND READY TO SERVE!")
-        logger.info("✅" * 35)
+        logger.info("" * 35)
         logger.info("")
     else:
         logger.error("")
-        logger.error("❌" * 35)
+        logger.error("" * 35)
         logger.error("    MODEL LOADING FAILED!")
         logger.error("    Check logs above for details")
-        logger.error("❌" * 35)
+        logger.error("" * 35)
         logger.error("")
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
-    logger.info(f"🚀 Starting Flask on port {port}")
+    logger.info(f" Starting Flask on port {port}")
     app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
     
     

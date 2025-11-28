@@ -1,6 +1,6 @@
 /**
  * FarmAI API Service - DIRECT MODE (No Timeout)
- * Ye code kabhi give up nahi karega. Jab tak jawab nahi aayega, wait karega.
+ * This module handles communication with the FarmAI backend server     
  */
 
 const API_BASE_URL = 'https://farmai-backend-148791329286.asia-south1.run.app';
@@ -12,7 +12,7 @@ const log = (...args) => console.log('%c🌾 FarmAI', 'color: #10B981; font-weig
 // 1. CHAT FUNCTION (Frontend Only)
 // ============================================================================
 export async function chatWithAI(message) {
-  await new Promise(r => setTimeout(r, 1000)); // Fake thinking time
+  await new Promise(r => setTimeout(r, 3000)); 
   const msg = message.toLowerCase();
   
   if (msg.includes('hello') || msg.includes('hi')) return "Namaste! I am FarmAI. Upload a leaf photo in Scan page.";
@@ -38,7 +38,7 @@ export async function predictDisease(imageFile) {
 
     log('⏳ Sending request to Server... (Please wait, do not refresh)');
     
-    // --- MAGIC LINE: Bina timeout ke request bhejo ---
+    
     const response = await fetch(`${API_BASE_URL}/api/predict`, {
       method: 'POST',
       mode: 'cors', 
