@@ -1,67 +1,16 @@
-# Python
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
 venv/
-env/
-ENV/
-
-# Logs
-logs/
-*.log
-
-# Data & models
-
-
-data/
-dashboards/
-*.sqlite
+.vscode/
+.idea/
+.DS_Store
 *.db
-
-# IDE
-.vscode/
-.idea/
-.DS_Store
-
-# Env
-.env
-farmai-react-ui/.env
-
-# Large model files (>100MB)
-models/*.pkl
-models/*.h5
-*.pkl
-*.h5
-
-# Keep folder structure
-!models/.gitkeep
-
-
-# Virtual Environment
-venv/
-env/
-*.pyc
-__pycache__/
-
-# Uploads (temporary files)
-uploads/
-
-# Local models (will download from HF)
-models/*.keras
-models/*.h5
-
-# Environment variables
-.env
-
-# Logs
-logs/
 *.log
-
-# IDE
-.vscode/
-.idea/
-
-# OS
-.DS_Store
-upload_to_hf.py
+uploads/*
+!uploads/.gitkeep
+models/*.h5
+models/*.keras
+!models/.gitkeep
+node_modules/
+dist/
+.env.local
