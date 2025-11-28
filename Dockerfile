@@ -1,13 +1,8 @@
-# ============================================================================
-# FarmAI Backend - Google Cloud Run Dockerfile (FIXED)
-# Works with TensorFlow, Keras 3, HuggingFace, PIL, gunicorn, etc.
-# ============================================================================
-
 FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install required system dependencies
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     libgomp1 \
@@ -16,30 +11,38 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     libxrender1 \
     libgl1 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements (your deployment requirements, can rename as needed)
+# Copy ONLY deployment requirements
 COPY requirements_deploy.txt ./requirements.txt
 
 # Install Python dependencies
-RUN pip install --no-cache-dir --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Copy app code and (if present) models folder
+# Copy application code
 COPY app_hf.py .
-COPY models/ ./models/
 
-# Create directories (if needed)
-RUN mkdir -p uploads models logs
+# Create temp directories
+RUN mkdir -p /tmp/uploads /tmp/models /tmp/hf_cache && \
+    chmod 777 /tmp/uploads /tmp/models /tmp/hf_cache
 
-# Expose port
+# Environment variables
 ENV PORT=8080
+ENV PYTHONUNBUFFERED=1
+ENV HF_HOME=/tmp/hf_cache
+
 EXPOSE 8080
 
-# Run using gunicorn - workers usually 1-2 for ML on <2GB RAM
+# Run with Gunicorn
 CMD exec gunicorn app_hf:app \
     --bind 0.0.0.0:$PORT \
     --workers 1 \
-    --threads 2 \
-    --timeout 300 \
-    --preload
+    --threads 4 \
+    --timeout 600 \
+    --preload \
+    --access-logfile - \
+    --error-logfile -
+
+        

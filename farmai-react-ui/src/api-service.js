@@ -1,359 +1,95 @@
 /**
- * FarmAI API Service - Updated for New Cloud Run Deployment
- * Backend: https://farmai-backend-148791329286.asia-south1.run.app
+ * FarmAI API Service - DIRECT MODE (No Timeout)
+ * Ye code kabhi give up nahi karega. Jab tak jawab nahi aayega, wait karega.
  */
-
-// ============================================================================
-// Configuration - UPDATED URL
-// ============================================================================
 
 const API_BASE_URL = 'https://farmai-backend-148791329286.asia-south1.run.app';
 
-// Enable detailed logging
-const DEBUG = true;
-
-const log = (...args) => {
-  if (DEBUG) {
-    console.log('%c🌾 FarmAI API', 'color: #10B981; font-weight: bold', ...args);
-  }
-};
-
-const logError = (...args) => {
-  console.error('%c❌ FarmAI ERROR', 'color: #EF4444; font-weight: bold', ...args);
-};
+// Logging helper
+const log = (...args) => console.log('%c🌾 FarmAI', 'color: #10B981; font-weight: bold', ...args);
 
 // ============================================================================
-// Health Check
+// 1. CHAT FUNCTION (Frontend Only)
 // ============================================================================
-
-export async function checkBackendHealth() {
-  try {
-    log('Checking backend health...');
-    
-    const response = await fetch(`${API_BASE_URL}/health`, {
-      method: 'GET',
-      mode: 'cors',
-      headers: {
-        'Accept': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const data = await response.json();
-    log('Backend Status:', data);
-    
-    return {
-      success: true,
-      isHealthy: data.status === 'healthy',
-      modelLoaded: data.model_loaded,
-      classesCount: data.classes_count || 0,
-    };
-  } catch (error) {
-    logError('Health check failed:', error.message);
-    return {
-      success: false,
-      isHealthy: false,
-      error: error.message,
-    };
-  }
+export async function chatWithAI(message) {
+  await new Promise(r => setTimeout(r, 1000)); // Fake thinking time
+  const msg = message.toLowerCase();
+  
+  if (msg.includes('hello') || msg.includes('hi')) return "Namaste! I am FarmAI. Upload a leaf photo in Scan page.";
+  if (msg.includes('tomato') || msg.includes('potato')) return "I can detect Early Blight, Late Blight, and Viruses in Tomato & Potato.";
+  if (msg.includes('medicine') || msg.includes('cure')) return "Please upload a photo first so I can suggest the right medicine.";
+  
+  return "I am trained to help farmers. Please go to the Scan page to check your crop health.";
 }
 
 // ============================================================================
-// Disease Prediction
+// 2. PREDICT FUNCTION (Main Logic - No Timeout)
 // ============================================================================
-
 export async function predictDisease(imageFile) {
-  log('='.repeat(60));
-  log('STARTING DISEASE PREDICTION');
-  log('='.repeat(60));
+  log('🚀 STARTING PREDICTION (Direct Mode - No Timeout)...');
   
   try {
-    // Validate input
-    if (!imageFile) {
-      throw new Error('No image file provided');
-    }
+    // Step A: Validate
+    if (!imageFile) throw new Error('No image file provided');
 
-    log('Image Details:');
-    log('  - Name:', imageFile.name);
-    log('  - Size:', (imageFile.size / 1024).toFixed(2), 'KB');
-    log('  - Type:', imageFile.type);
-
-    // Wake up backend
-    log('Waking up backend (may take 60-90s on first request)...');
-    try {
-      const healthResponse = await fetch(`${API_BASE_URL}/health`, {
-        method: 'GET',
-        mode: 'cors',
-      });
-      
-      if (healthResponse.ok) {
-        const healthData = await healthResponse.json();
-        log('Backend Status:', healthData.status);
-        log('Model Loaded:', healthData.model_loaded);
-        log('CPU Mode:', healthData.cpu_only || false);
-      }
-    } catch (e) {
-      log('Health check failed, but continuing...');
-    }
-
-    // Prepare form data
+    // Step B: Prepare Data
     const formData = new FormData();
     formData.append('file', imageFile);
+
+    log('⏳ Sending request to Server... (Please wait, do not refresh)');
     
-    log('Form data prepared');
-
-    // Send prediction request
-    const url = `${API_BASE_URL}/api/predict`;
-    log('Sending POST request to:', url);
-    log('⏳ Prediction may take 5-10 seconds on CPU...');
-
-    const startTime = Date.now();
-
-    const response = await fetch(url, {
+    // --- MAGIC LINE: Bina timeout ke request bhejo ---
+    const response = await fetch(`${API_BASE_URL}/api/predict`, {
       method: 'POST',
-      mode: 'cors',
-      body: formData,
+      mode: 'cors', 
+      body: formData
     });
 
-    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-    log(`Response received in ${duration} seconds`);
-    log('Response Status:', response.status, response.statusText);
+    log('✅ Response Status:', response.status);
 
-    // Check response
+    // Step C: Check Errors
     if (!response.ok) {
-      let errorMessage;
-      try {
-        const errorData = await response.json();
-        errorMessage = errorData.message || `HTTP ${response.status}`;
-      } catch {
-        errorMessage = await response.text() || `HTTP ${response.status}`;
-      }
-      throw new Error(errorMessage);
+      const errorText = await response.text();
+      throw new Error(`Server Error: ${response.status} - ${errorText}`);
     }
 
-    // Parse response
+    // Step D: Get Data
     const data = await response.json();
-    log('Prediction Response:', data);
+    log('🎉 Result Received:', data);
 
-    if (data.status === 'success') {
-      log('✅ PREDICTION SUCCESSFUL');
-      log(`Inference Time: ${data.inference_time || 'N/A'}`);
-      
-      const result = {
-        status: 'success',
-        disease: data.prediction || 'Unknown',
-        confidence: data.confidence || 0,
-        confidence_percentage: Math.round((data.confidence || 0) * 100),
-        recommendation: getRecommendation(data.prediction),
-        top_3: data.top_3 || [],
-        inference_time: data.inference_time || `${duration}s`,
-      };
-
-      log('Formatted Result:', result);
-      return result;
-    } else {
-      throw new Error(data.message || 'Prediction failed');
-    }
+    return {
+      status: 'success',
+      disease: data.prediction,
+      confidence: data.confidence,
+      confidence_percentage: data.confidence_percent,
+      recommendation: getRecommendation(data.prediction),
+      top_3: data.top_3 || []
+    };
 
   } catch (error) {
-    logError('Prediction Error:', error.message);
-    logError('Error Type:', error.name);
-    
-    // Provide helpful error messages
-    let userMessage = error.message;
-    
-    if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-      userMessage = 'Cannot connect to backend. Please check your internet connection.';
-    } else if (error.message.includes('timeout') || error.name === 'AbortError') {
-      userMessage = 'Request timeout. Backend is processing (CPU mode takes 5-10 seconds). Please try again.';
-    } else if (error.message.includes('504') || error.message.includes('Gateway')) {
-      userMessage = 'Backend timeout. Model may be loading. Please wait 60 seconds and try again.';
-    }
-    
+    console.error("Prediction Error:", error);
     return {
       status: 'error',
-      message: userMessage,
+      message: "Connection failed. The server is waking up. Please try again in 30 seconds."
     };
   }
 }
 
-// ============================================================================
-// Chat with AI
-// ============================================================================
-
-export async function chatWithAI(message) {
-  try {
-    log('Sending chat message:', message);
-
-    const response = await fetch(`${API_BASE_URL}/api/chat`, {
-      method: 'POST',
-      mode: 'cors',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: JSON.stringify({ message }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data.response || data.message || 'No response from AI';
-
-  } catch (error) {
-    logError('Chat error:', error);
-    return 'AI chat is currently unavailable. Please use the disease scanner for diagnosis.';
-  }
+// Helper for recommendations
+function getRecommendation(disease) {
+  if (!disease) return "Consult a local expert.";
+  const d = disease.toLowerCase();
+  
+  if (d.includes('early blight')) return "Use fungicides like Chlorothalonil or Mancozeb. Improve air circulation.";
+  if (d.includes('late blight')) return "Apply copper-based fungicides immediately. Destroy infected plants.";
+  if (d.includes('bacterial')) return "Use copper sprays. Avoid overhead watering to keep leaves dry.";
+  if (d.includes('virus') || d.includes('yellow')) return "Remove infected plants to stop spread. Control whiteflies.";
+  if (d.includes('healthy')) return "Your crop looks healthy! Keep monitoring regularly.";
+  
+  return "Ensure proper sunlight, water, and nutrition for your crops.";
 }
 
-// ============================================================================
-// Get Disease Classes
-// ============================================================================
+export const API_CONFIG = { version: 'DIRECT.MODE' };
 
-export async function getDiseaseClasses() {
-  try {
-    log('Fetching disease classes...');
 
-    const response = await fetch(`${API_BASE_URL}/api/classes`, {
-      method: 'GET',
-      mode: 'cors',
-      headers: {
-        'Accept': 'application/json',
-      },
-    });
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const data = await response.json();
-    log('Classes loaded:', data.count);
-
-    return {
-      success: true,
-      classes: data.classes || [],
-      count: data.count || 0,
-    };
-
-  } catch (error) {
-    logError('Error fetching classes:', error);
-    return {
-      success: false,
-      error: error.message,
-    };
-  }
-}
-
-// ============================================================================
-// Helper: Get Treatment Recommendation
-// ============================================================================
-
-function getRecommendation(diseaseName) {
-  if (!diseaseName) {
-    return 'Unable to provide recommendation without disease identification.';
-  }
-
-  const recommendations = {
-    'early blight': 'Apply copper-based fungicide. Remove infected leaves. Ensure proper spacing for air circulation.',
-    'late blight': 'Apply fungicide immediately. Remove and destroy infected plants. Avoid overhead watering.',
-    'leaf mold': 'Improve air circulation. Reduce humidity. Apply fungicide if severe.',
-    'septoria': 'Remove infected leaves. Apply copper fungicide. Mulch to prevent soil splash.',
-    'bacterial spot': 'Use copper-based bactericide. Remove infected tissue. Avoid overhead irrigation.',
-    'target spot': 'Apply fungicide. Ensure good air circulation. Remove plant debris.',
-    'mosaic': 'Remove and destroy infected plants. Control aphids. Use resistant varieties.',
-    'yellow': 'Control whiteflies. Remove infected plants. Use resistant varieties.',
-    'healthy': 'No treatment needed. Continue regular monitoring and good cultural practices.',
-  };
-
-  const diseaseLower = diseaseName.toLowerCase();
-  
-  for (const [key, value] of Object.entries(recommendations)) {
-    if (diseaseLower.includes(key)) {
-      return value;
-    }
-  }
-
-  return 'Consult with local agricultural extension service for specific treatment recommendations.';
-}
-
-// ============================================================================
-// Test Function
-// ============================================================================
-
-export async function testAPI() {
-  console.clear();
-  console.log('%c🧪 FarmAI API Test', 'font-size: 20px; color: #10B981; font-weight: bold');
-  console.log('='.repeat(60));
-  console.log('Testing Backend:', API_BASE_URL);
-  console.log('='.repeat(60));
-  
-  // Test 1: Health Check
-  console.log('\n📋 Test 1: Health Check');
-  const health = await checkBackendHealth();
-  console.log('Result:', health);
-  
-  if (!health.success) {
-    console.error('%c❌ Health check failed!', 'color: #EF4444; font-weight: bold');
-    console.log('Backend may not be running or URL is incorrect');
-    return { health, classes: null };
-  }
-  
-  // Test 2: Get Classes
-  console.log('\n📋 Test 2: Get Disease Classes');
-  const classes = await getDiseaseClasses();
-  console.log('Result:', classes);
-  
-  console.log('\n' + '='.repeat(60));
-  
-  if (health.success && classes.success) {
-    console.log('%c✅ All Tests Passed!', 'color: #10B981; font-weight: bold');
-    console.log('Backend is working correctly');
-    console.log('\nTo test image upload:');
-    console.log('1. Go to Scan page');
-    console.log('2. Upload an image');
-    console.log('3. Wait 5-10 seconds for CPU inference');
-    console.log('4. Check console for detailed logs');
-  } else {
-    console.log('%c⚠️ Some Tests Failed', 'color: #F59E0B; font-weight: bold');
-    console.log('Check the errors above');
-  }
-  
-  return { health, classes };
-}
-
-// ============================================================================
-// Export Configuration
-// ============================================================================
-
-export const API_CONFIG = {
-  baseUrl: API_BASE_URL,
-  endpoints: {
-    health: `${API_BASE_URL}/health`,
-    predict: `${API_BASE_URL}/api/predict`,
-    chat: `${API_BASE_URL}/api/chat`,
-    classes: `${API_BASE_URL}/api/classes`,
-  },
-  debug: DEBUG,
-  version: '4.0.0',
-  deployment: 'Google Cloud Run - CPU Optimized',
-  region: 'asia-south1',
-};
-
-// Log on module load
-log('API Service Initialized');
-log('Backend URL:', API_BASE_URL);
-log('Region: asia-south1 (CPU Mode)');
-log('Debug Mode:', DEBUG ? 'ON' : 'OFF');
-log('Expected inference time: 5-10 seconds');
-log('Run testAPI() in console to test connection');
-
-// Make testAPI available globally
-if (typeof window !== 'undefined') {
-  window.testFarmAI = testAPI;
-  console.log('%cℹ️ Tip: Run window.testFarmAI() in console to test API', 'color: #3B82F6');
-}
